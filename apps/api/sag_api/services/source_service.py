@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sag_api.connectors import registry
 from sag_api.core.config import settings
+from sag_api.core.db import SessionLocal
 from sag_api.core.error_taxonomy import ErrorCode
 from sag_api.core.errors import ApiError, NotFoundError, ValidationError
 from sag_api.core.logging import get_logger
@@ -21,6 +23,7 @@ from sag_api.sag import EngineManager
 from sag_api.schemas.source import SourceCreate, SourceUpdate
 
 log = get_logger("services.source")
+_SOURCE_REFRESH_TASKS: set[asyncio.Task[None]] = set()
 
 
 async def list_sources(session: AsyncSession) -> list[Source]:
@@ -117,15 +120,33 @@ async def update_source(
         source.status = data.status
     await session.commit()
     await session.refresh(source)
+    # The source row is already committed.  Universe invalidation is a
+    # follow-up job and can involve a second transaction plus queue work; it
+    # must not hold the save response open behind that work.
+    refresh_task = asyncio.create_task(
+        _refresh_source_universe(source.id, job_queue),
+        name=f"sag-source-universe-refresh:{source.id}",
+    )
+    _SOURCE_REFRESH_TASKS.add(refresh_task)
+    refresh_task.add_done_callback(_SOURCE_REFRESH_TASKS.discard)
+    return source
+
+
+async def _refresh_source_universe(source_id: str, job_queue: JobQueue | None) -> None:
     from sag_api.services.universe_service import schedule_universe_refresh
 
-    await schedule_universe_refresh(
-        session,
-        job_queue,
-        source_id=source.id,
-        reason="source_updated",
-    )
-    return source
+    try:
+        async with SessionLocal() as refresh_session:
+            await schedule_universe_refresh(
+                refresh_session,
+                job_queue,
+                source_id=source_id,
+                reason="source_updated",
+            )
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        log.exception("信源保存后的知识宇宙刷新调度失败：source_id=%s", source_id)
 
 
 async def delete_source(
@@ -166,8 +187,11 @@ async def delete_source(
 async def sync_source(session: AsyncSession, source_id: str, *, job_queue: JobQueue) -> Job:
     """触发一次动态连接器同步（如网页抓取）。"""
     source = await get_source(session, source_id)
+    from sag_api.db.models import FolderSyncConfig
+
+    folder_config = await session.get(FolderSyncConfig, source.id)
     connector = registry.get(source.connector_kind)
-    if not connector.meta.supports_sync:
+    if not connector.meta.supports_sync and not (folder_config and folder_config.enabled):
         raise ValidationError("该连接器不支持同步")
     job = Job(type=JobType.SYNC_SOURCE, source_id=source.id, status=JobStatus.QUEUED)
     session.add(job)

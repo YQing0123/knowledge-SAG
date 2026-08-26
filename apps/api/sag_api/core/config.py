@@ -63,7 +63,9 @@ class Settings(BaseSettings):
     upload_dir: str = "./.data/uploads"  # 上传原始文件落盘
     max_upload_mb: int = 25  # 单文件上传上限
     job_concurrency: int = 2  # 后台处理并发
-    document_extract_concurrency: int = Field(default=30, ge=1, le=50)  # 单文档 chunk 抽取并发
+    # Two document workers run by default. Keep the aggregate LLM fan-out modest
+    # for hosted OpenAI-compatible endpoints, which can queue large bursts.
+    document_extract_concurrency: int = Field(default=4, ge=1, le=50)  # 单文档 chunk 抽取并发
     document_chunk_max_tokens: int = Field(default=1_000, ge=100, le=100_000)
     document_chunk_mode: Literal["standard", "heading_strict"] = "standard"
     document_event_entity_attempts: int = Field(default=2, ge=1, le=3)
@@ -91,6 +93,12 @@ class Settings(BaseSettings):
         ".json",
         ".epub",
     }
+    # 本地目录同步仅允许读取这个容器路径下的子目录。Compose 默认把宿主机
+    # ``SAG_SYNC_HOST_PATH`` 只读挂载到 /sync，避免页面配置获得任意文件系统权限。
+    folder_sync_root: str = "/sync"
+    folder_sync_scheduler_poll_seconds: int = Field(default=15, ge=5, le=300)
+    folder_sync_watch_poll_seconds: int = Field(default=30, ge=10, le=3600)
+    folder_sync_max_files_per_run: int = Field(default=100, ge=1, le=1000)
 
     # ── OCTX 信源导入导出 ───────────────────────────────────────────────
     # 压缩包在一次性受限子进程中校验/打包；这些值是部署可调的硬上限，
@@ -134,9 +142,9 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     llm_model: str = _DEFAULT_LLM_PROVIDER.default_model
     llm_temperature: float = _DEFAULT_LLM_PROVIDER.default_temperature
-    llm_max_tokens: int = 20_000
+    llm_max_tokens: int = 4_096
     llm_context_window: int = _DEFAULT_LLM_PROVIDER.default_context_window
-    llm_timeout_ms: int = Field(default=60_000, ge=1_000, le=600_000)
+    llm_timeout_ms: int = Field(default=180_000, ge=1_000, le=600_000)
     llm_max_retries: int = Field(default=2, ge=0, le=10)
     # auto 首选 json_schema，仅在网关明确返回“不支持”时按接入能力缓存降级。
     llm_structured_output_mode: Literal[

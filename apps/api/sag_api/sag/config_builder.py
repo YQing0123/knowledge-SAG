@@ -104,9 +104,10 @@ def build_engine_config(settings: Settings, *, overrides: dict[str, Any] | None 
         model=settings.embedding_model,
         base_url=settings.effective_embedding_base_url,
         api_key=settings.effective_embedding_api_key or _PLACEHOLDER,
-        # 0.8.2:pgvector/oceanbase 建向量模式对象必须显式维度;SAG 默认模型
-        # bge-large-en-v1.5 为 1024 维,未配置 SAG_EMBEDDING_DIMENSIONS 时按此兜底。
-        dimensions=settings.embedding_dimensions or 1024,
+        # 只在部署配置明确指定时传递 dimensions。部分 OpenAI-compatible
+        # embedding 服务（例如 SiliconFlow 的 BAAI/bge-m3）不接受该参数，
+        # 而 LanceDB 在本地模式会从首批向量自动推断维度。
+        dimensions=settings.embedding_dimensions,
     )
 
     return EngineConfig(

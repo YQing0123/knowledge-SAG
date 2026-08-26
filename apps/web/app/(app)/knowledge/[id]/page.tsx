@@ -21,6 +21,7 @@ import {
 import { useApp } from "@/components/features/app-shell";
 import { DocumentList } from "@/components/features/document-list";
 import { EmptyState } from "@/components/features/empty-state";
+import { FolderSyncDialog } from "@/components/features/folder-sync-dialog";
 import {
   dismissFolderImportDialog,
   FolderImportDialog,
@@ -67,10 +68,74 @@ export default function SourceDetailPage() {
     documentActivities,
     refresh,
     mutateDocument,
+    reprocessFailedDocuments,
+    reprocessCurrentModelDocuments,
     notFound,
   } = useSourceContent(id);
   const [contentView, setContentView] = React.useState<ContentView>("list");
+  const [reprocessingFailed, setReprocessingFailed] = React.useState(false);
+  const [reprocessingCurrentModel, setReprocessingCurrentModel] = React.useState(false);
   const graphViewActive = contentView !== "list";
+  const failedDocumentCount =
+    documents?.filter((document) => document.status === "failed").length ?? 0;
+  const unreadyDocumentCount =
+    documents?.filter((document) => document.status !== "ready").length ?? 0;
+
+  const handleReprocessFailed = React.useCallback(async () => {
+    if (!source || failedDocumentCount === 0 || reprocessingFailed) return;
+    setReprocessingFailed(true);
+    try {
+      const result = await reprocessFailedDocuments();
+      if (result.queued > 0) {
+        toast.success(t("reprocessFailedSuccess", { count: result.queued }));
+      } else {
+        toast.message(t("noFailedDocuments"));
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t("reprocessFailedFailed"),
+      );
+    } finally {
+      setReprocessingFailed(false);
+    }
+  }, [
+    failedDocumentCount,
+    reprocessFailedDocuments,
+    reprocessingFailed,
+    source,
+    t,
+  ]);
+
+  const handleReprocessCurrentModel = React.useCallback(async () => {
+    if (!source || unreadyDocumentCount === 0 || reprocessingCurrentModel) return;
+    setReprocessingCurrentModel(true);
+    try {
+      const result = await reprocessCurrentModelDocuments();
+      if (result.queued > 0 || result.stopping > 0) {
+        toast.success(
+          t("reprocessCurrentModelSuccess", {
+            model: result.model,
+            queued: result.queued,
+            stopping: result.stopping,
+          }),
+        );
+      } else {
+        toast.message(t("noUnreadyDocuments"));
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t("reprocessCurrentModelFailed"),
+      );
+    } finally {
+      setReprocessingCurrentModel(false);
+    }
+  }, [
+    reprocessCurrentModelDocuments,
+    reprocessingCurrentModel,
+    source,
+    t,
+    unreadyDocumentCount,
+  ]);
 
   React.useEffect(() => {
     const saved = window.localStorage.getItem("sag:source-content-view");
@@ -144,6 +209,12 @@ export default function SourceDetailPage() {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {source && (
+            <FolderSyncDialog
+              sourceId={source.id}
+              onSynced={() => void refresh({ background: true })}
+            />
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -245,7 +316,6 @@ export default function SourceDetailPage() {
             </AlertDescription>
           </Alert>
         )}
-
         <div className={cn(graphViewActive && "flex min-h-0 flex-1 flex-col")}>
           <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-medium text-muted-foreground">
@@ -258,44 +328,84 @@ export default function SourceDetailPage() {
                 ? t("parenthesizedCount", { count: documents.length })
                 : ""}
             </h2>
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              size="sm"
-              value={contentView}
-              onValueChange={(value) =>
-                value && changeContentView(value as ContentView)
-              }
-              aria-label={t("contentViewAria")}
-              className="rounded-md bg-card max-sm:w-full"
-            >
-              <ToggleGroupItem
-                value="list"
-                className="gap-1.5 px-3 max-sm:flex-1 max-sm:px-2"
-                aria-label={t("listView")}
+            <div className="flex items-center gap-2 max-sm:w-full max-sm:flex-wrap max-sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => void handleReprocessCurrentModel()}
+                disabled={!source || unreadyDocumentCount === 0 || reprocessingCurrentModel}
+                title={t("reprocessCurrentModel")}
               >
-                <List className="size-3.5" />
-                {t("list")}
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="graph"
-                className="gap-1.5 px-3 max-sm:flex-1 max-sm:px-2"
-                aria-label={t("graph2dView")}
+                <RefreshCw
+                  className={cn("size-3.5", reprocessingCurrentModel && "animate-spin")}
+                />
+                <span>{t("reprocessCurrentModel")}</span>
+                {unreadyDocumentCount > 0 && (
+                  <span className="rounded-full bg-primary/10 px-1.5 text-[11px] text-primary">
+                    {unreadyDocumentCount}
+                  </span>
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => void handleReprocessFailed()}
+                disabled={!source || failedDocumentCount === 0 || reprocessingFailed}
+                title={t("reprocessFailed")}
               >
-                <Network className="size-3.5" />
-                <span className="sm:hidden">2D</span>
-                <span className="hidden sm:inline">{t("graph2d")}</span>
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="graph3d"
-                className="gap-1.5 px-3 max-sm:flex-1 max-sm:px-2"
-                aria-label={t("graph3dView")}
+                <RefreshCw
+                  className={cn("size-3.5", reprocessingFailed && "animate-spin")}
+                />
+                <span>{t("reprocessFailed")}</span>
+                {failedDocumentCount > 0 && (
+                  <span className="rounded-full bg-destructive/10 px-1.5 text-[11px] text-destructive">
+                    {failedDocumentCount}
+                  </span>
+                )}
+              </Button>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={contentView}
+                onValueChange={(value) =>
+                  value && changeContentView(value as ContentView)
+                }
+                aria-label={t("contentViewAria")}
+                className="rounded-md bg-card max-sm:w-full sm:w-auto"
               >
-                <Orbit className="size-3.5" />
-                <span className="sm:hidden">3D</span>
-                <span className="hidden sm:inline">{t("graph3d")}</span>
-              </ToggleGroupItem>
-            </ToggleGroup>
+                <ToggleGroupItem
+                  value="list"
+                  className="gap-1.5 px-3 max-sm:flex-1 max-sm:px-2"
+                  aria-label={t("listView")}
+                >
+                  <List className="size-3.5" />
+                  {t("list")}
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="graph"
+                  className="gap-1.5 px-3 max-sm:flex-1 max-sm:px-2"
+                  aria-label={t("graph2dView")}
+                >
+                  <Network className="size-3.5" />
+                  <span className="sm:hidden">2D</span>
+                  <span className="hidden sm:inline">{t("graph2d")}</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="graph3d"
+                  className="gap-1.5 px-3 max-sm:flex-1 max-sm:px-2"
+                  aria-label={t("graph3dView")}
+                >
+                  <Orbit className="size-3.5" />
+                  <span className="sm:hidden">3D</span>
+                  <span className="hidden sm:inline">{t("graph3d")}</span>
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
           </div>
           {documents === null || !source ? (
             <div className="flex flex-col gap-2">

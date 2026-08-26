@@ -18,8 +18,10 @@ vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   DialogContent: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
   DialogDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>,
+  DialogFooter: ({ children }: { children: React.ReactNode }) => <footer>{children}</footer>,
   DialogHeader: ({ children }: { children: React.ReactNode }) => <header>{children}</header>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
+  DialogTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock("@/components/features/use-source-content", () => ({
@@ -97,5 +99,6 @@ describe("source detail page", () => {
     expect(html).toContain("扫描结果");
     expect(html).toContain("检查冲突");
     expect(html).toContain("最终确认");
+    expect(html).toContain('aria-label="本地文件夹同步"');
   });
 });

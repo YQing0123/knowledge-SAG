@@ -12,9 +12,10 @@ services:
     environment:
       SAG_ENVIRONMENT: ${SAG_ENVIRONMENT:-dev}
       SAG_DEBUG: "false"
+      SAG_TIMEZONE: ${SAG_TIMEZONE:-Asia/Shanghai}
       # 仅供本地快速启动；切换 prod 时应用会拒绝这个已知弱密钥。
       SAG_SECRET_KEY: ${SAG_SECRET_KEY:-dev-insecure-secret-change-me-in-production-0123456789}
-      SAG_CORS_ORIGINS: ${SAG_CORS_ORIGINS:-http://localhost:3000}
+      SAG_CORS_ORIGINS: ${SAG_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3080,http://localhost:3080}
       SAG_ALLOW_REGISTRATION: ${SAG_ALLOW_REGISTRATION:-false}
       # 可选 Dify 外部知识库兼容端点；留空时端点拒绝服务。
       SAG_DIFY_API_KEY: ${SAG_DIFY_API_KEY:-}
@@ -32,8 +33,9 @@ services:
       SAG_LLM_BASE_URL: ${SAG_LLM_BASE_URL-https://api.302ai.cn/v1}
       SAG_LLM_API_KEY: ${SAG_LLM_API_KEY:-}
       SAG_LLM_MODEL: ${SAG_LLM_MODEL:-qwen3.6-flash}
-      SAG_LLM_MAX_TOKENS: ${SAG_LLM_MAX_TOKENS:-20000}
-      SAG_LLM_TIMEOUT_MS: ${SAG_LLM_TIMEOUT_MS:-60000}
+      # Keep per-chunk extraction bounded for hosted OpenAI-compatible endpoints.
+      SAG_LLM_MAX_TOKENS: ${SAG_LLM_MAX_TOKENS:-4096}
+      SAG_LLM_TIMEOUT_MS: ${SAG_LLM_TIMEOUT_MS:-180000}
       SAG_LLM_MAX_RETRIES: ${SAG_LLM_MAX_RETRIES:-2}
       SAG_LLM_STRUCTURED_OUTPUT_MODE: ${SAG_LLM_STRUCTURED_OUTPUT_MODE:-auto}
       # 默认允许 Settings 页面在运行时调整 LLM；设为 true 才作为部署策略锁定。
@@ -45,14 +47,21 @@ services:
       SAG_MINERU_BASE_URL: ${SAG_MINERU_BASE_URL:-https://api.302ai.cn}
       SAG_MINERU_API_KEY: ${SAG_MINERU_API_KEY:-}
       SAG_MINERU_VERSION: ${SAG_MINERU_VERSION:-2.5}
-      SAG_DOCUMENT_EXTRACT_CONCURRENCY: ${SAG_DOCUMENT_EXTRACT_CONCURRENCY:-30}
+      # Allow two document jobs to make parsing and vectorization progress in parallel.
+      SAG_JOB_CONCURRENCY: ${SAG_JOB_CONCURRENCY:-2}
+      SAG_DOCUMENT_EXTRACT_CONCURRENCY: ${SAG_DOCUMENT_EXTRACT_CONCURRENCY:-4}
       SAG_DOCUMENT_CHUNK_MAX_TOKENS: ${SAG_DOCUMENT_CHUNK_MAX_TOKENS:-1000}
       SAG_DOCUMENT_CHUNK_MODE: ${SAG_DOCUMENT_CHUNK_MODE:-standard}
       SAG_JOB_MAX_ATTEMPTS: ${SAG_JOB_MAX_ATTEMPTS:-3}
       SAG_ENGINE_CACHE_SIZE: ${SAG_ENGINE_CACHE_SIZE:-16}
       SAG_ENGINE_WARMUP_COUNT: ${SAG_ENGINE_WARMUP_COUNT:-4}
+      # 受控本地目录同步：宿主机目录只读挂载，页面仅能选择其下的相对目录。
+      SAG_FOLDER_SYNC_ROOT: /sync
+      SAG_FOLDER_SYNC_SCHEDULER_POLL_SECONDS: ${SAG_FOLDER_SYNC_SCHEDULER_POLL_SECONDS:-15}
+      SAG_FOLDER_SYNC_WATCH_POLL_SECONDS: ${SAG_FOLDER_SYNC_WATCH_POLL_SECONDS:-30}
     volumes:
       - sagdata:/data
+      - ${SAG_SYNC_HOST_PATH:-./.data/sync}:/sync:ro
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
     healthcheck:

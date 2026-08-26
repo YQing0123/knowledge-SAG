@@ -68,6 +68,54 @@ export interface Source {
   updated_at: string;
 }
 
+export type FolderSyncMode = "watch" | "interval" | "daily" | "weekly";
+
+export interface FolderSyncConfig {
+  source_id: string;
+  enabled: boolean;
+  directory: string;
+  directories: string[];
+  mode: FolderSyncMode;
+  interval_seconds: number;
+  schedule_time: string;
+  weekday: number;
+  include_globs: string[];
+  exclude_globs: string[];
+  sync_deletions: boolean;
+  image_enrichment_enabled: boolean;
+  image_enrichment_mode: "vlm" | "ocr";
+  image_max_count: number;
+  image_max_mb: number;
+  current_stage: "scanning" | "image_parsing" | "image_merging" | "failed" | null;
+  current_file: string | null;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  last_error: string | null;
+  last_summary: Record<string, number | string>;
+  mount_root: string;
+  mount_available: boolean;
+  timezone: string;
+  image_enrichment_available: boolean;
+}
+
+export interface FolderSyncDirectory {
+  name: string;
+  path: string;
+}
+
+export interface FolderSyncDirectoryList {
+  current_path: string;
+  parent_path: string | null;
+  directories: FolderSyncDirectory[];
+  mount_root: string;
+  mount_available: boolean;
+}
+
+export type FolderSyncConfigPatch = Pick<
+  FolderSyncConfig,
+  "enabled" | "directory" | "directories" | "mode" | "interval_seconds" | "schedule_time" | "weekday" | "include_globs" | "exclude_globs" | "sync_deletions" | "image_enrichment_enabled" | "image_enrichment_mode" | "image_max_count" | "image_max_mb"
+>;
+
 export interface Connector {
   kind: string;
   title: string;
@@ -113,6 +161,18 @@ export interface Doc {
   original_file_available?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface ReprocessFailedDocumentsResult {
+  requested: number;
+  queued: number;
+  skipped: number;
+  jobs: BackgroundJob[];
+}
+
+export interface ReprocessCurrentModelDocumentsResult extends ReprocessFailedDocumentsResult {
+  stopping: number;
+  model: string;
 }
 
 export interface CitationEventRef {
@@ -212,6 +272,7 @@ export interface ModelConfig {
   llm_max_tokens: number;
   llm_timeout_ms: number;
   llm_max_retries: number;
+  llm_structured_output_mode: "auto" | "json_schema" | "json_object" | "prompt_only";
   llm_api_key_set: boolean;
   embedding_model: string;
   embedding_base_url: string | null;
@@ -244,6 +305,7 @@ export type ModelConfigPatch = Partial<{
   llm_max_tokens: number;
   llm_timeout_ms: number;
   llm_max_retries: number;
+  llm_structured_output_mode: ModelConfig["llm_structured_output_mode"];
   embedding_model: string;
   embedding_base_url: string;
   embedding_api_key: string;

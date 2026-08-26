@@ -21,7 +21,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Spinner } from "@/components/ui/spinner";
-import { api, ApiError } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  isTimeoutApiError,
+  modelConfigMatchesPatch,
+} from "@/lib/api";
 import { SEARCH_STRATEGIES } from "@/lib/retrieval-config";
 import type { ModelConfig, ModelConfigPatch } from "@/lib/types";
 import {
@@ -72,20 +77,33 @@ export function KnowledgeConfigForm() {
 
   async function save() {
     setSaving(true);
+    const patch: ModelConfigPatch = {
+      document_chunk_max_tokens: chunkMaxTokens,
+      document_chunk_mode: chunkMode,
+      document_extract_concurrency: extractConcurrency,
+      search_strategy: strategy,
+      search_top_k: topK,
+      sag_language: language,
+    };
     try {
-      const patch: ModelConfigPatch = {
-        document_chunk_max_tokens: chunkMaxTokens,
-        document_chunk_mode: chunkMode,
-        document_extract_concurrency: extractConcurrency,
-        search_strategy: strategy,
-        search_top_k: topK,
-        sag_language: language,
-      };
       const { config } = await api.saveModelConfig(patch);
       hydrate(config);
       await refreshCapabilities();
       toast.success(t("saved"));
     } catch (error) {
+      if (isTimeoutApiError(error)) {
+        try {
+          const persisted = await api.getModelConfig();
+          if (modelConfigMatchesPatch(persisted, patch)) {
+            hydrate(persisted);
+            await refreshCapabilities();
+            toast.success(t("saved"));
+            return;
+          }
+        } catch {
+          // Keep the original timeout message when reconciliation also fails.
+        }
+      }
       toast.error(error instanceof ApiError ? error.message : t("saveFailed"));
     } finally {
       setSaving(false);

@@ -21,7 +21,12 @@ from sag_api.parsing.text import (
 )
 from sag_api.sag import EngineManager
 from sag_api.schemas.common import Ok
-from sag_api.schemas.document import DocumentOut, IngestRequest
+from sag_api.schemas.document import (
+    DocumentOut,
+    IngestRequest,
+    ReprocessCurrentModelDocumentsOut,
+    ReprocessFailedDocumentsOut,
+)
 from sag_api.schemas.job import JobOut
 from sag_api.services.document_service import (
     create_document_from_upload,
@@ -31,6 +36,8 @@ from sag_api.services.document_service import (
     list_documents,
     pause_document,
     reprocess_document,
+    reprocess_failed_documents,
+    reprocess_unready_documents_with_current_model,
     resume_document,
 )
 from sag_api.services.source_operation_service import source_document_mutation
@@ -171,6 +178,57 @@ async def ingest(
             job_queue=job_queue,
         )
     return DocumentOut.model_validate(document)
+
+
+@router.post("/reprocess-failed", response_model=ReprocessFailedDocumentsOut)
+async def reprocess_failed(
+    source_id: str,
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    job_queue: JobQueue = Depends(get_job_queue),
+) -> ReprocessFailedDocumentsOut:
+    """一键重新处理当前信源中失败的文档，READY 文档自动排除。"""
+
+    async with source_document_mutation(SessionLocal, source_id, "document-reprocess-failed"):
+        source = await get_source(session, source_id)
+        jobs, skipped, requested = await reprocess_failed_documents(
+            session,
+            source,
+            job_queue=job_queue,
+        )
+    return ReprocessFailedDocumentsOut(
+        requested=requested,
+        queued=len(jobs),
+        skipped=skipped,
+        jobs=[JobOut.model_validate(job) for job in jobs],
+    )
+
+
+@router.post("/reprocess-current-model", response_model=ReprocessCurrentModelDocumentsOut)
+async def reprocess_current_model(
+    source_id: str,
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    job_queue: JobQueue = Depends(get_job_queue),
+) -> ReprocessCurrentModelDocumentsOut:
+    """Use the saved model for every non-ready document in this source."""
+
+    async with source_document_mutation(SessionLocal, source_id, "document-reprocess-current-model"):
+        source = await get_source(session, source_id)
+        jobs, queued, stopping, skipped = await reprocess_unready_documents_with_current_model(
+            session,
+            source,
+            job_queue=job_queue,
+            model=settings.llm_model,
+        )
+    return ReprocessCurrentModelDocumentsOut(
+        requested=queued + stopping + skipped,
+        queued=queued,
+        stopping=stopping,
+        skipped=skipped,
+        model=settings.llm_model,
+        jobs=[JobOut.model_validate(job) for job in jobs],
+    )
 
 
 @router.get("/{document_id}", response_model=DocumentOut)

@@ -2,8 +2,9 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api, ApiError } from "./api";
+import { api, ApiError, modelConfigMatchesPatch } from "./api";
 import { clearToken, setToken } from "./auth";
+import type { ModelConfig } from "./types";
 
 class FakeXMLHttpRequest {
   static instances: FakeXMLHttpRequest[] = [];
@@ -90,6 +91,31 @@ describe("unauthorized request ownership", () => {
 
     expect(document.cookie).not.toContain("expired-token");
     expect(location.href).toBe("/login");
+  });
+});
+
+describe("configuration timeout reconciliation", () => {
+  it("matches persisted model settings while treating secret fields as *_set flags", () => {
+    const config = {
+      llm_api_key_set: true,
+      embedding_api_key_set: false,
+      mineru_api_key_set: false,
+      llm_model: "qwen3.6-flash",
+      search_top_k: 8,
+    } as unknown as ModelConfig;
+
+    expect(
+      modelConfigMatchesPatch(config, {
+        llm_api_key: "new-secret",
+        llm_model: "qwen3.6-flash",
+        search_top_k: 8,
+      }),
+    ).toBe(true);
+    expect(
+      modelConfigMatchesPatch(config, {
+        llm_model: "different-model",
+      }),
+    ).toBe(false);
   });
 });
 

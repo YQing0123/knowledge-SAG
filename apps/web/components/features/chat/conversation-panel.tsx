@@ -149,6 +149,8 @@ export interface ConversationPanelProps {
   /** 空态建议提问：点击即发送 */
   suggestions?: string[];
   placeholder?: string;
+  /** Embed-only initial SAG source scope, passed unchanged to the native /ask SSE transport. */
+  initialSourceIds?: readonly string[];
   /** 面板可交互时激活会话与焦点；隐藏但保留挂载时设为 false。 */
   active?: boolean;
   /** 紧凑入口可隐藏提示词预览，避免在小面板上叠加弹框。 */
@@ -177,6 +179,7 @@ export function ConversationPanel({
   emptyHint,
   suggestions,
   placeholder,
+  initialSourceIds = [],
   active = true,
   showPromptPreview = true,
   beforeMessages,
@@ -448,6 +451,14 @@ export function ConversationPanel({
   React.useEffect(() => {
     api.listSources().then(setSources).catch(() => {});
   }, []);
+
+  React.useEffect(() => {
+    if (initialSourceIds.length === 0 || sources.length === 0) return;
+    setScoped((current) => {
+      const additions = sources.filter((source) => initialSourceIds.includes(source.id) && !current.some((item) => item.id === source.id)).map((source) => ({ id: source.id, name: source.name }));
+      return additions.length ? [...current, ...additions] : current;
+    });
+  }, [initialSourceIds, setScoped, sources]);
 
   // 上下文用量估算：CJK ≈1 token/字，其余 ≈1 token/4 字符（无 tokenizer 的专业近似）
   const ctxTokens = React.useMemo(() => {

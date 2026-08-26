@@ -21,7 +21,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Spinner } from "@/components/ui/spinner";
-import { api, ApiError } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  isTimeoutApiError,
+  modelConfigMatchesPatch,
+} from "@/lib/api";
 import { isLlmConfigLocked } from "@/lib/model-config-lock";
 import { mineruProviderBaseUrl } from "@/lib/mineru-config";
 import { getDiagnosticsStore } from "@/lib/diagnostics";
@@ -60,6 +65,8 @@ export function ModelConfigForm() {
   const [maxTokens, setMaxTokens] = React.useState(20_000);
   const [timeoutMs, setTimeoutMs] = React.useState(60_000);
   const [maxRetries, setMaxRetries] = React.useState(2);
+  const [structuredOutputMode, setStructuredOutputMode] =
+    React.useState<ModelConfig["llm_structured_output_mode"]>("auto");
   const [ctxWindow, setCtxWindow] = React.useState(128000);
   const [embModel, setEmbModel] = React.useState("");
   const [embBaseUrl, setEmbBaseUrl] = React.useState("");
@@ -85,6 +92,7 @@ export function ModelConfigForm() {
     setMaxTokens(config.llm_max_tokens);
     setTimeoutMs(config.llm_timeout_ms ?? 60_000);
     setMaxRetries(config.llm_max_retries ?? 2);
+    setStructuredOutputMode(config.llm_structured_output_mode ?? "auto");
     setCtxWindow(config.llm_context_window ?? 128000);
     setEmbModel(config.embedding_model);
     setEmbBaseUrl(config.embedding_base_url ?? "");
@@ -147,6 +155,7 @@ export function ModelConfigForm() {
       llm_max_tokens: maxTokens,
       llm_timeout_ms: timeoutMs,
       llm_max_retries: maxRetries,
+      llm_structured_output_mode: structuredOutputMode,
       llm_context_window: ctxWindow,
       embedding_model: embModel.trim(),
       embedding_base_url: embBaseUrl.trim(),
@@ -166,8 +175,8 @@ export function ModelConfigForm() {
   async function save() {
     setSaving(true);
     setTestResult(null);
+    const patch = currentPatch();
     try {
-      const patch = currentPatch();
       const { config } = await api.saveModelConfig(patch);
       hydrate(config);
       await refreshCapabilities();
@@ -194,6 +203,19 @@ export function ModelConfigForm() {
       });
       toast.success(t("saved"));
     } catch (error) {
+      if (isTimeoutApiError(error)) {
+        try {
+          const persisted = await api.getModelConfig();
+          if (modelConfigMatchesPatch(persisted, patch)) {
+            hydrate(persisted);
+            await refreshCapabilities();
+            toast.success(t("saved"));
+            return;
+          }
+        } catch {
+          // Keep the original timeout message when reconciliation also fails.
+        }
+      }
       toast.error(error instanceof ApiError ? error.message : t("saveFailed"));
     } finally {
       setSaving(false);
@@ -490,6 +512,27 @@ export function ModelConfigForm() {
                 }
               />
               <FieldDescription>{t("retriesDescription")}</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="llm-structured-output">{t("structuredOutputMode")}</FieldLabel>
+              <Select
+                value={structuredOutputMode}
+                onValueChange={(value) =>
+                  setStructuredOutputMode(value as ModelConfig["llm_structured_output_mode"])
+                }
+                disabled={llmLocked}
+              >
+                <SelectTrigger id="llm-structured-output">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">{t("structuredOutputAuto")}</SelectItem>
+                  <SelectItem value="json_schema">JSON Schema</SelectItem>
+                  <SelectItem value="json_object">JSON Object</SelectItem>
+                  <SelectItem value="prompt_only">{t("structuredOutputPromptOnly")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <FieldDescription>{t("structuredOutputModeDescription")}</FieldDescription>
             </Field>
           </div>
         </SettingsRow>
