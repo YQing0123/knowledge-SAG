@@ -77,6 +77,8 @@ class FolderSyncConfigOut(BaseModel):
     last_finished_at: datetime | None
     last_error: str | None
     last_summary: dict
+    today_new: int = 0
+    last_7_days_new: int = 0
     mount_root: str
     mount_available: bool
     timezone: str

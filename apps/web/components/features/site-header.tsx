@@ -27,7 +27,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 
 function sectionLabel(
   pathname: string,
-  labels: { search: string; answer: string; knowledge: string; settings: string },
+  labels: { search: string; answer: string; knowledge: string; dsh: string; settings: string },
 ): string {
   const workspaceSection = workspaceSectionFromPathname(pathname);
   if (workspaceSection) return labels[workspaceSection];
@@ -50,6 +50,7 @@ export function SiteHeader() {
     search: nav("search"),
     answer: nav("answer"),
     knowledge: nav("knowledge"),
+    dsh: nav("dsh"),
     settings: nav("settings"),
   });
   return (

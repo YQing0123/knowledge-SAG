@@ -1,5 +1,11 @@
 node_modules/
-.next/
+# The normal Docker target rebuilds `.next` internally. The prebuilt fallback
+# target intentionally includes only the standalone runtime and static assets.
+.next/*
+!.next/standalone/
+!.next/standalone/**
+!.next/static/
+!.next/static/**
 .env*
 npm-debug.log*
 .DS_Store

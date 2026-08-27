@@ -13,6 +13,7 @@ describe("workspace sections", () => {
       "search",
       "answer",
       "knowledge",
+      "dsh",
     ]);
   });
 
@@ -23,6 +24,8 @@ describe("workspace sections", () => {
     ["/chat/thread-1", "answer"],
     ["/knowledge", "knowledge"],
     ["/knowledge/source-1", "knowledge"],
+    ["/dsh", "dsh"],
+    ["/dsh/session-1", "dsh"],
     ["/settings", null],
   ])("maps %s to %s", (pathname, expected) => {
     expect(workspaceSectionFromPathname(pathname)).toBe(expected);
@@ -34,6 +37,10 @@ describe("workspace sections", () => {
     expect(workspaceSectionDefinition("answer")).toMatchObject({
       id: "answer",
       href: "/chat",
+    });
+    expect(workspaceSectionDefinition("dsh")).toMatchObject({
+      id: "dsh",
+      href: "/dsh?new=1",
     });
   });
 });

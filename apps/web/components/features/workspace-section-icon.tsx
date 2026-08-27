@@ -1,4 +1,4 @@
-import { Library, MessageCircle, Search, type LucideIcon } from "lucide-react";
+import { BrainCircuit, Library, MessageCircle, Search, type LucideIcon } from "lucide-react";
 
 import type { WorkspaceSection } from "@/lib/workspace";
 
@@ -6,6 +6,7 @@ const ICONS = {
   search: Search,
   answer: MessageCircle,
   knowledge: Library,
+  dsh: BrainCircuit,
 } satisfies Record<WorkspaceSection, LucideIcon>;
 
 export function WorkspaceSectionIcon({

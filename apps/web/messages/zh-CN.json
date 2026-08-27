@@ -90,6 +90,11 @@
     "notRun": "尚未运行",
     "lastFinished": "上次完成",
     "newUpdated": "新增 / 更新",
+    "todayNew": "今日新增",
+    "last7DaysNew": "近 7 日新增",
+    "headerSwitchLabel": "自动同步",
+    "headerEnabled": "已启用自动同步",
+    "headerDisabled": "自动同步已关闭",
     "unchanged": "未变化",
     "deleted": "同步删除",
     "lastError": "最近错误：{error}"
@@ -153,8 +158,9 @@
   },
   "Navigation": {
     "search": "搜索",
-    "answer": "问答",
+    "answer": "原生问答",
     "knowledge": "知识库",
+    "dsh": "DSH会话",
     "settings": "设置"
   },
   "Settings": {
@@ -269,6 +275,9 @@
     "emptyThreads": "还没有会话，从「新对话」开始。",
     "generating": "生成中",
     "archiveThread": "归档会话",
+    "deleteThread": "删除会话",
+    "threadDeleted": "会话已删除",
+    "deleteFailed": "删除会话失败",
     "archive": "归档",
     "expandMore": "展开更多会话",
     "loading": "加载中…",

@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sag_api.core.config import Settings, settings
@@ -180,7 +180,13 @@ def _content_type(path: Path) -> str:
     return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
 
 
-def _public(config: FolderSyncConfig, app_settings: Settings = settings) -> FolderSyncConfigOut:
+def _public(
+    config: FolderSyncConfig,
+    app_settings: Settings = settings,
+    *,
+    today_new: int = 0,
+    last_7_days_new: int = 0,
+) -> FolderSyncConfigOut:
     root = _root(app_settings)
     return FolderSyncConfigOut(
         source_id=config.source_id,
@@ -204,11 +210,44 @@ def _public(config: FolderSyncConfig, app_settings: Settings = settings) -> Fold
         last_finished_at=config.last_finished_at,
         last_error=config.last_error,
         last_summary=dict(config.last_summary or {}),
+        today_new=today_new,
+        last_7_days_new=last_7_days_new,
         mount_root=str(root),
         mount_available=root.is_dir(),
         timezone=app_settings.timezone,
         image_enrichment_available=app_settings.mineru_provider == "official" and app_settings.mineru_configured,
     )
+
+
+async def _recent_new_counts(
+    session: AsyncSession,
+    source_id: str,
+    app_settings: Settings = settings,
+) -> tuple[int, int]:
+    """Return manifest additions in the configured local calendar.
+
+    ``last_summary`` intentionally reflects only the most recent run, which is
+    often an unchanged polling pass.  The manifest creation timestamp is the
+    durable source of truth for the user-facing daily and weekly counters.
+    """
+
+    try:
+        local_now = datetime.now(ZoneInfo(app_settings.timezone))
+    except Exception:  # A bad deployment setting must not break sync settings.
+        local_now = datetime.now(UTC)
+    today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+    week_start = (today_start - timedelta(days=6)).astimezone(UTC)
+
+    async def count_since(start: datetime) -> int:
+        value = await session.scalar(
+            select(func.count(FolderSyncEntry.id)).where(
+                FolderSyncEntry.source_id == source_id,
+                FolderSyncEntry.created_at >= start,
+            )
+        )
+        return int(value or 0)
+
+    return await count_since(today_start), await count_since(week_start)
 
 
 async def get_folder_sync_config(session: AsyncSession, source_id: str) -> FolderSyncConfig:
@@ -224,21 +263,19 @@ async def get_folder_sync_config(session: AsyncSession, source_id: str) -> Folde
 
 
 async def get_folder_sync_public(session: AsyncSession, source_id: str) -> FolderSyncConfigOut:
-    return _public(await get_folder_sync_config(session, source_id))
+    config = await get_folder_sync_config(session, source_id)
+    today_new, last_7_days_new = await _recent_new_counts(session, source_id)
+    return _public(config, today_new=today_new, last_7_days_new=last_7_days_new)
 
 
 async def update_folder_sync_config(
     session: AsyncSession, source_id: str, patch: FolderSyncConfigUpdate
 ) -> FolderSyncConfigOut:
     config = await get_folder_sync_config(session, source_id)
-    if patch.image_enrichment_enabled and (
-        settings.mineru_provider != "official" or not settings.mineru_configured
-    ):
+    if patch.image_enrichment_enabled and (settings.mineru_provider != "official" or not settings.mineru_configured):
         raise ValidationError("图片采集需要先在 SAG 设置中配置 MinerU 官方服务与 API Key")
     directories = (
-        patch.directories
-        if "directories" in patch.model_fields_set
-        else ([patch.directory] if patch.directory else [])
+        patch.directories if "directories" in patch.model_fields_set else ([patch.directory] if patch.directory else [])
     )
     if patch.enabled:
         if not directories:
@@ -262,7 +299,8 @@ async def update_folder_sync_config(
     config.last_error = None
     await session.commit()
     await session.refresh(config)
-    return _public(config)
+    today_new, last_7_days_new = await _recent_new_counts(session, source_id)
+    return _public(config, today_new=today_new, last_7_days_new=last_7_days_new)
 
 
 async def enqueue_folder_sync(session: AsyncSession, source_id: str, job_queue: JobQueue) -> Job:

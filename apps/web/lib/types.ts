@@ -92,6 +92,8 @@ export interface FolderSyncConfig {
   last_finished_at: string | null;
   last_error: string | null;
   last_summary: Record<string, number | string>;
+  today_new: number;
+  last_7_days_new: number;
   mount_root: string;
   mount_available: boolean;
   timezone: string;
@@ -332,6 +334,8 @@ export interface ModelSetupStatus {
 
 export interface SystemPreferences {
   timezone: string;
+  conversation_archive_dir: string;
+  conversation_ingest_dir: string;
 }
 
 export interface McpToolDetail {

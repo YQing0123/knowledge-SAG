@@ -22,11 +22,15 @@ class QuickModelSetupRequest(BaseModel):
 
 
 class SystemPreferencesUpdate(BaseModel):
-    timezone: str = Field(min_length=1, max_length=100)
+    timezone: str | None = Field(default=None, min_length=1, max_length=100)
+    conversation_archive_dir: str | None = Field(default=None, min_length=1, max_length=600)
+    conversation_ingest_dir: str | None = Field(default=None, min_length=1, max_length=600)
 
     @field_validator("timezone")
     @classmethod
-    def validate_timezone(cls, value: str) -> str:
+    def validate_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip()
         try:
             ZoneInfo(normalized)

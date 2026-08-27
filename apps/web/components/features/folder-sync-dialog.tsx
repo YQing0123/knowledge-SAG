@@ -61,7 +61,7 @@ function displayTime(value: string | null, notRun: string): string {
   return value ? new Date(value).toLocaleString() : notRun;
 }
 
-export function FolderSyncDialog({ sourceId, onSynced }: { sourceId: string; onSynced: () => void }) {
+export function FolderSyncDialog({ sourceId, onSynced, onConfigChanged }: { sourceId: string; onSynced: () => void; onConfigChanged?: () => void }) {
   const t = useTranslations("FolderSync");
   const [open, setOpen] = React.useState(false);
   const [directoryOpen, setDirectoryOpen] = React.useState(false);
@@ -105,6 +105,7 @@ export function FolderSyncDialog({ sourceId, onSynced }: { sourceId: string; onS
       const result = await api.saveFolderSyncConfig(sourceId, draft);
       setConfig(result);
       setDraft(toPatch(result));
+      onConfigChanged?.();
       if (showToast) toast.success(t("saved"));
       return result;
     } catch (error) {
@@ -239,6 +240,8 @@ export function FolderSyncDialog({ sourceId, onSynced }: { sourceId: string; onS
             <dl className="grid grid-cols-2 gap-x-5 gap-y-3 rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground sm:grid-cols-4">
               <div><dt>{t("lastFinished")}</dt><dd className="mt-1 text-foreground">{displayTime(config.last_finished_at, t("notRun"))}</dd></div>
               <div><dt>{t("newUpdated")}</dt><dd className="mt-1 text-foreground">{summary.created ?? 0} / {summary.updated ?? 0}</dd></div>
+              <div><dt>{t("todayNew")}</dt><dd className="mt-1 text-foreground">{config.today_new}</dd></div>
+              <div><dt>{t("last7DaysNew")}</dt><dd className="mt-1 text-foreground">{config.last_7_days_new}</dd></div>
               <div><dt>{t("unchanged")}</dt><dd className="mt-1 text-foreground">{summary.unchanged ?? 0}</dd></div>
               <div><dt>{t("deleted")}</dt><dd className="mt-1 text-foreground">{summary.deleted ?? 0}</dd></div>
             </dl>
@@ -357,5 +360,55 @@ export function FolderSyncDialog({ sourceId, onSynced }: { sourceId: string; onS
         </DialogContent>
       </Dialog>
     </Dialog>
+  );
+}
+
+/** Header-level status control. The full configuration remains in the dialog. */
+export function FolderSyncEnabledSwitch({ sourceId, onConfigChanged }: { sourceId: string; onConfigChanged?: () => void }) {
+  const t = useTranslations("FolderSync");
+  const [config, setConfig] = React.useState<FolderSyncConfig | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    let active = true;
+    setLoading(true);
+    void api.getFolderSyncConfig(sourceId)
+      .then((value) => { if (active) setConfig(value); })
+      .catch(() => { if (active) setConfig(null); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [sourceId]);
+
+  async function change(checked: boolean) {
+    if (!config || saving) return;
+    setSaving(true);
+    try {
+      const result = await api.saveFolderSyncConfig(sourceId, { ...toPatch(config), enabled: checked });
+      setConfig(result);
+      onConfigChanged?.();
+      toast.success(checked ? t("headerEnabled") : t("headerDisabled"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-2" aria-label={t("headerSwitchLabel")}>
+          <span className="hidden text-xs text-muted-foreground sm:inline">{t("headerSwitchLabel")}</span>
+          <Switch
+            checked={config?.enabled ?? false}
+            disabled={loading || saving || !config}
+            onCheckedChange={(checked) => void change(checked)}
+            aria-label={t("headerSwitchLabel")}
+          />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{config?.enabled ? t("headerEnabled") : t("headerDisabled")}</TooltipContent>
+    </Tooltip>
   );
 }

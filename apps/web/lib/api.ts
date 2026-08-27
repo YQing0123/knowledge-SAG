@@ -184,6 +184,59 @@ export interface EvalCompareResponse {
   judge_reason: string | null;
 }
 
+export interface DshCapabilities {
+  groups: Array<{ id: string; name: string; models: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    input_modalities?: string[];
+    context_window?: number;
+    reasoning_efforts?: Array<{ id: string; name: string; description?: string }>;
+    default_reasoning_effort?: string;
+  }> }>;
+  permission_presets: string[];
+  modes?: string[];
+}
+
+export interface DshStreamBody {
+  session_id: string;
+  query: string;
+  source_ids: string[];
+  provider: string;
+  model: string;
+  reasoning_effort?: string;
+  permission_preset: string;
+  mode: "controlled" | "agent";
+  web_enabled: boolean;
+  attachments: Array<{ id: string; name: string; media_type: string }>;
+}
+
+export interface DshSessionRecord {
+  id: string;
+  title: string;
+  source_ids: string[];
+  provider: string;
+  model: string;
+  permission_preset: string;
+  mode: "controlled" | "agent";
+  web_enabled: boolean;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DshMessageRecord {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant";
+  content: string;
+  attachments: Array<{ id: string; name: string; media_type: string }>;
+  retrieval_hits: number;
+  context: Record<string, unknown>;
+  event_summary: Array<Record<string, unknown>>;
+  created_at: string;
+}
+
 export interface GlobalSearchStreamHandlers {
   onResult: (result: SearchResponse) => void;
   onSummaryDelta: (delta: string) => void;
@@ -483,6 +536,29 @@ async function streamGlobalSearch(
   return completed;
 }
 
+async function dshCapabilities(): Promise<DshCapabilities> {
+  return request<DshCapabilities>("/api/v1/dsh/capabilities");
+}
+
+async function dshStream(body: DshStreamBody, signal?: AbortSignal): Promise<Response> {
+  const token = getToken();
+  const response = await fetch(`${API_BASE}/api/v1/dsh/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept-Language": readClientLocale(),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } | null;
+    throw new ApiError(response.status, payload?.error?.code ?? "dsh_gateway", payload?.error?.message ?? response.statusText);
+  }
+  return response;
+}
+
 interface RequestOptions extends RequestInit {
   redirectOnUnauthorized?: boolean;
   /** Mutations may include a bounded engine/storage drain after commit. */
@@ -723,7 +799,7 @@ export const api = {
   capabilities: () => request<Capabilities>("/api/v1/system/capabilities"),
   getSystemPreferences: () =>
     request<SystemPreferences>("/api/v1/system/preferences"),
-  saveSystemPreferences: (preferences: SystemPreferences) =>
+  saveSystemPreferences: (preferences: Partial<SystemPreferences>) =>
     request<SystemPreferences>("/api/v1/system/preferences", {
       method: "PUT",
       body: JSON.stringify(preferences),
@@ -952,6 +1028,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(b),
     }),
+  exportThreadMarkdown: (id: string, tid: string) =>
+    request<{ ok: boolean; path: string }>(
+      `/api/v1/agents/${id}/threads/${tid}/export-markdown`,
+      { method: "POST" },
+    ),
   createThread: (id: string, title?: string, signal?: AbortSignal) =>
     request<Thread>(`/api/v1/agents/${id}/threads`, {
       method: "POST",
@@ -966,6 +1047,11 @@ export const api = {
       {
         method: "DELETE",
       },
+    ),
+  saveMessageToLibrary: (id: string, tid: string, mid: string) =>
+    request<{ ok: boolean; path: string }>(
+      `/api/v1/agents/${id}/threads/${tid}/messages/${mid}/save-to-library`,
+      { method: "POST" },
     ),
   listMessages: (
     id: string,
@@ -1011,6 +1097,18 @@ export const api = {
     ),
   deleteThread: (id: string, tid: string) =>
     request(`/api/v1/agents/${id}/threads/${tid}`, { method: "DELETE" }),
+
+  // DSH conversation gateway (SAG-authenticated server-side proxy)
+  dshCapabilities,
+  dshStream,
+  dshListSessions: () => request<DshSessionRecord[]>('/api/v1/dsh/sessions'),
+  dshCreateSession: (body: Partial<DshSessionRecord>) => request<DshSessionRecord>('/api/v1/dsh/sessions', { method: 'POST', body: JSON.stringify(body) }),
+  dshPatchSession: (sessionId: string, body: Partial<DshSessionRecord>) => request<DshSessionRecord>(`/api/v1/dsh/sessions/${sessionId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  dshDeleteSession: (sessionId: string) => request<{ ok: boolean }>(`/api/v1/dsh/sessions/${sessionId}`, { method: 'DELETE' }),
+  dshArchiveSession: (sessionId: string) => request<{ ok: boolean; path: string }>(`/api/v1/dsh/sessions/${sessionId}/archive`, { method: 'POST' }),
+  dshSaveMessageToLibrary: (sessionId: string, messageId: string) => request<{ ok: boolean; path: string }>(`/api/v1/dsh/sessions/${sessionId}/messages/${messageId}/save-to-library`, { method: 'POST' }),
+  dshListMessages: (sessionId: string) => request<DshMessageRecord[]>(`/api/v1/dsh/sessions/${sessionId}/messages`),
+  dshCreateMessage: (sessionId: string, body: Omit<Partial<DshMessageRecord>, "id" | "session_id" | "created_at"> & Pick<DshMessageRecord, "role" | "content">) => request<DshMessageRecord>(`/api/v1/dsh/sessions/${sessionId}/messages`, { method: 'POST', body: JSON.stringify(body) }),
 
   // 搜索
   globalSearch: (b: GlobalSearchBody, signal?: AbortSignal) =>

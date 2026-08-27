@@ -21,7 +21,7 @@ import {
 import { useApp } from "@/components/features/app-shell";
 import { DocumentList } from "@/components/features/document-list";
 import { EmptyState } from "@/components/features/empty-state";
-import { FolderSyncDialog } from "@/components/features/folder-sync-dialog";
+import { FolderSyncDialog, FolderSyncEnabledSwitch } from "@/components/features/folder-sync-dialog";
 import {
   dismissFolderImportDialog,
   FolderImportDialog,
@@ -75,6 +75,7 @@ export default function SourceDetailPage() {
   const [contentView, setContentView] = React.useState<ContentView>("list");
   const [reprocessingFailed, setReprocessingFailed] = React.useState(false);
   const [reprocessingCurrentModel, setReprocessingCurrentModel] = React.useState(false);
+  const [folderSyncConfigVersion, setFolderSyncConfigVersion] = React.useState(0);
   const graphViewActive = contentView !== "list";
   const failedDocumentCount =
     documents?.filter((document) => document.status === "failed").length ?? 0;
@@ -210,10 +211,18 @@ export default function SourceDetailPage() {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {source && (
-            <FolderSyncDialog
-              sourceId={source.id}
-              onSynced={() => void refresh({ background: true })}
-            />
+            <div className="flex items-center gap-2">
+              <FolderSyncDialog
+                sourceId={source.id}
+                onSynced={() => void refresh({ background: true })}
+                onConfigChanged={() => setFolderSyncConfigVersion((value) => value + 1)}
+              />
+              <FolderSyncEnabledSwitch
+                key={`${source.id}-${folderSyncConfigVersion}`}
+                sourceId={source.id}
+                onConfigChanged={() => setFolderSyncConfigVersion((value) => value + 1)}
+              />
+            </div>
           )}
           <Tooltip>
             <TooltipTrigger asChild>

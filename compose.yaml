@@ -9,6 +9,10 @@ services:
       dockerfile: Dockerfile
       args:
         SAG_API_EXTRAS: ""
+    # DSH keeps its Web server loopback-only. A narrowly scoped host proxy
+    # exposes only the authenticated SAG gateway over this IPv4 address.
+    extra_hosts:
+      - "sag-dsh-host:${SAG_DSH_PROXY_HOST:?Set SAG_DSH_PROXY_HOST to the host IPv4 address}"
     environment:
       SAG_ENVIRONMENT: ${SAG_ENVIRONMENT:-dev}
       SAG_DEBUG: "false"
@@ -27,6 +31,11 @@ services:
       SAG_UPLOAD_DIR: /data/uploads
       SAG_SAG_VECTOR_PROVIDER: lancedb
       SAG_SAG_LANGUAGE: ${SAG_SAG_LANGUAGE:-zh}
+      SAG_DSH_GATEWAY_BASE: ${SAG_DSH_GATEWAY_BASE:-}
+      SAG_DSH_GATEWAY_TOKEN: ${SAG_DSH_GATEWAY_TOKEN:-}
+      SAG_DSH_GATEWAY_TIMEOUT_SECONDS: ${SAG_DSH_GATEWAY_TIMEOUT_SECONDS:-180}
+      SAG_DSH_DELEGATION_SECRET: ${SAG_DSH_DELEGATION_SECRET:-}
+      SAG_DSH_DELEGATION_TTL_SECONDS: ${SAG_DSH_DELEGATION_TTL_SECONDS:-300}
       # LLM / Embedding / MinerU（留空也能启动，之后可在设置页配置）
       SAG_LLM_PROVIDER: ${SAG_LLM_PROVIDER:-openai}
       # 不带冒号：未定义时用 302 默认值，显式留空时保留空值以使用原生 provider 官方端点。
@@ -59,9 +68,11 @@ services:
       SAG_FOLDER_SYNC_ROOT: /sync
       SAG_FOLDER_SYNC_SCHEDULER_POLL_SECONDS: ${SAG_FOLDER_SYNC_SCHEDULER_POLL_SECONDS:-15}
       SAG_FOLDER_SYNC_WATCH_POLL_SECONDS: ${SAG_FOLDER_SYNC_WATCH_POLL_SECONDS:-30}
+      SAG_CONVERSATION_EXPORT_ROOT: /sync
+      SAG_CONVERSATION_HOST_ROOT: ${SAG_SYNC_HOST_PATH:-./.data/sync}
     volumes:
       - sagdata:/data
-      - ${SAG_SYNC_HOST_PATH:-./.data/sync}:/sync:ro
+      - ${SAG_SYNC_HOST_PATH:-./.data/sync}:/sync
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
     healthcheck:

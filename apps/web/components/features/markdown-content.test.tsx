@@ -3,18 +3,36 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { NextIntlClientProvider } from "next-intl";
 import { describe, expect, it } from "vitest";
 
+import type { Citation } from "@/lib/types";
 import messages from "@/messages/zh-CN.json";
 import { ChunkedMarkdown, MarkdownContent } from "./markdown-content";
 
-function renderMarkdown(content: string) {
+function renderMarkdown(content: string, citations?: Citation[]) {
   return renderToStaticMarkup(
     <NextIntlClientProvider locale="zh-CN" timeZone="Asia/Shanghai" messages={messages}>
-      <MarkdownContent content={content} />
+      <MarkdownContent content={content} citations={citations} />
     </NextIntlClientProvider>,
   );
 }
 
 describe("MarkdownContent math rendering", () => {
+  it("turns DSH [#n] citations into traceable source buttons", () => {
+    const html = renderMarkdown("来自知识库的结论[#2]。", [{
+      n: 2,
+      kind: "internal",
+      chunk_id: "chunk-2",
+      heading: "原文段落",
+      snippet: "原文",
+      score: 0.9,
+      source_id: "source-2",
+      source_name: "外部素材收集",
+    }]);
+
+    expect(html).toContain(">[#2]</button>");
+    expect(html).toContain("text-emerald-700");
+    expect(html).toContain('title="原文段落"');
+  });
+
   it("renders the inline and display LaTeX used in issue #138", () => {
     const content = String.raw`行内公式：$A$。
 

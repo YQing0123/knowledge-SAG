@@ -90,6 +90,11 @@
     "notRun": "Not run yet",
     "lastFinished": "Last completed",
     "newUpdated": "New / updated",
+    "todayNew": "New today",
+    "last7DaysNew": "New in last 7 days",
+    "headerSwitchLabel": "Auto sync",
+    "headerEnabled": "Automatic sync is enabled",
+    "headerDisabled": "Automatic sync is disabled",
     "unchanged": "Unchanged",
     "deleted": "Deleted",
     "lastError": "Latest error: {error}"
@@ -153,8 +158,9 @@
   },
   "Navigation": {
     "search": "Search",
-    "answer": "Chat",
+    "answer": "Native QA",
     "knowledge": "Knowledge",
+    "dsh": "DSH Session",
     "settings": "Settings"
   },
   "Settings": {
@@ -269,6 +275,9 @@
     "emptyThreads": "No conversations yet. Start a new one.",
     "generating": "Generating",
     "archiveThread": "Archive conversation",
+    "deleteThread": "Delete conversation",
+    "threadDeleted": "Conversation deleted",
+    "deleteFailed": "Failed to delete conversation",
     "archive": "Archive",
     "expandMore": "Show more conversations",
     "loading": "Loading…",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -15,6 +15,7 @@ from sag_api.services import markdown_image_service
 from sag_api.services.folder_sync_service import (
     _is_sync_due,
     _matches,
+    _recent_new_counts,
     list_sync_directories,
     resolve_sync_directory,
     run_folder_sync,
@@ -112,6 +113,58 @@ def test_folder_sync_periodic_schedules_only_run_once_per_occurrence(tmp_path: P
     assert not _is_sync_due(weekly, now, app_settings)
     weekly.last_started_at = datetime(2026, 8, 17, 1, 0, tzinfo=UTC)
     assert _is_sync_due(weekly, now, app_settings)
+
+
+@pytest.mark.asyncio
+async def test_folder_sync_recent_new_counts_use_manifest_creation_time(tmp_path: Path):
+    from sag_api.core.db import SessionLocal, init_db
+
+    await init_db()
+    app_settings = _settings(tmp_path)
+    now = datetime.now(UTC)
+    async with SessionLocal() as session:
+        source = Source(
+            id="folder-sync-recent-counts",
+            name="Folder Sync Recent Counts",
+            source_type=SourceType.DOCUMENT,
+            connector_kind=ConnectorKind.FILE_UPLOAD,
+            sag_source_config_id="src_folder_sync_recent_counts",
+        )
+        session.add(source)
+        await session.commit()
+        session.add_all(
+            [
+                FolderSyncEntry(
+                    source_id=source.id,
+                    relative_path="today.md",
+                    content_hash="a" * 64,
+                    created_at=now - timedelta(hours=1),
+                ),
+                FolderSyncEntry(
+                    source_id=source.id,
+                    relative_path="week.md",
+                    content_hash="b" * 64,
+                    created_at=now - timedelta(days=5),
+                ),
+                FolderSyncEntry(
+                    source_id=source.id,
+                    relative_path="old.md",
+                    content_hash="c" * 64,
+                    created_at=now - timedelta(days=8),
+                ),
+            ]
+        )
+        await session.commit()
+        today, last_7_days = await _recent_new_counts(session, source.id, app_settings)
+        for entry in list(
+            (await session.scalars(select(FolderSyncEntry).where(FolderSyncEntry.source_id == source.id))).all()
+        ):
+            await session.delete(entry)
+        await session.delete(source)
+        await session.commit()
+
+    assert today == 1
+    assert last_7_days == 2
 
 
 @pytest.mark.asyncio
@@ -254,8 +307,13 @@ async def test_folder_sync_adopts_matching_manual_document_without_duplicate(tmp
         session.add(source)
         await session.commit()
         existing, _ = await create_document_from_upload(
-            session, source, filename="guide.md", content_type="text/markdown", data=raw,
-            upload_dir=app_settings.upload_dir, job_queue=queue,
+            session,
+            source,
+            filename="guide.md",
+            content_type="text/markdown",
+            data=raw,
+            upload_dir=app_settings.upload_dir,
+            job_queue=queue,
         )
         session.add(FolderSyncConfig(source_id=source.id, enabled=True, directory="team"))
         await session.commit()
