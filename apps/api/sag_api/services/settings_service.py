@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from urllib.parse import urlparse
+from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
@@ -24,6 +25,8 @@ from sag_api.enums import SEARCH_STRATEGIES, normalize_search_strategy
 _SCOPE = "global"
 _KEY = "model_config"
 _PREFERENCES_KEY = "system_preferences"
+_DEFAULT_CONVERSATION_ARCHIVE_DIR = "知识层/会话归档"
+_DEFAULT_CONVERSATION_INGEST_DIR = "知识层/会话入库"
 log = get_logger("settings")
 
 # 允许运行期覆盖的字段（值已由请求 schema 校验/转型）
@@ -38,6 +41,7 @@ _FIELDS = frozenset(
         "llm_context_window",
         "llm_timeout_ms",
         "llm_max_retries",
+        "llm_structured_output_mode",
         "embedding_model",
         "embedding_base_url",
         "embedding_api_key",
@@ -69,6 +73,7 @@ _LOCKABLE_LLM_FIELDS = frozenset(
         "llm_context_window",
         "llm_timeout_ms",
         "llm_max_retries",
+        "llm_structured_output_mode",
     }
 )
 _MODEL_CONFIG_SOURCES = {field: "default" for field in _FIELDS - _SECRET_FIELDS}
@@ -80,9 +85,9 @@ QUICK_SETUP_302 = {
     "llm_base_url": _OPENAI_COMPATIBLE.default_base_url,
     "llm_model": _OPENAI_COMPATIBLE.default_model,
     "llm_temperature": _OPENAI_COMPATIBLE.default_temperature,
-    "llm_max_tokens": 20_000,
+    "llm_max_tokens": 4_096,
     "llm_context_window": _OPENAI_COMPATIBLE.default_context_window,
-    "llm_timeout_ms": 60_000,
+    "llm_timeout_ms": 180_000,
     "llm_max_retries": 2,
     "embedding_model": "Qwen/Qwen3-Embedding-4B",
     "embedding_base_url": "https://api.302ai.cn/v1",
@@ -91,7 +96,7 @@ QUICK_SETUP_302 = {
     "mineru_provider": "302",
     "mineru_base_url": "https://api.302ai.cn",
     "mineru_version": "2.5",
-    "document_extract_concurrency": 30,
+    "document_extract_concurrency": 4,
     "document_chunk_max_tokens": 1_000,
     "document_chunk_mode": "standard",
     "search_strategy": "multi_es_fast",
@@ -230,6 +235,11 @@ async def apply_startup_overrides(session_factory: async_sessionmaker) -> None:
                 log.warning("忽略非法的持久化时区：%s", timezone)
             else:
                 _settings.timezone = timezone
+        for field, default in (("conversation_archive_dir", _DEFAULT_CONVERSATION_ARCHIVE_DIR), ("conversation_ingest_dir", _DEFAULT_CONVERSATION_INGEST_DIR)):
+            try:
+                setattr(_settings, field, _conversation_relative(preference_values.get(field), default))
+            except ConfigurationError as error:
+                log.warning("忽略非法的持久化会话目录 %s: %s", field, error)
 
 
 def effective_model_config() -> dict:
@@ -243,6 +253,7 @@ def effective_model_config() -> dict:
         "llm_context_window": _settings.llm_context_window,
         "llm_timeout_ms": _settings.llm_timeout_ms,
         "llm_max_retries": _settings.llm_max_retries,
+        "llm_structured_output_mode": _settings.llm_structured_output_mode,
         "llm_api_key_set": bool(_settings.llm_api_key),
         "embedding_model": _settings.embedding_model,
         "embedding_base_url": _settings.embedding_base_url,
@@ -266,8 +277,43 @@ def effective_model_config() -> dict:
     }
 
 
+def _conversation_relative(value: object, default: str) -> str:
+    raw = str(value or default).strip().replace("\\", "/")
+    root = Path(_settings.conversation_export_root).resolve()
+    host_root = Path(_settings.conversation_host_root).expanduser().resolve() if _settings.conversation_host_root else None
+    candidate = Path(raw).expanduser()
+    if candidate.is_absolute():
+        resolved_candidate = candidate.resolve()
+        try:
+            candidate = resolved_candidate.relative_to(root)
+        except ValueError:
+            if host_root is None:
+                raise ConfigurationError("当前部署未配置会话归档宿主机根目录")
+            try:
+                candidate = resolved_candidate.relative_to(host_root)
+            except ValueError as error:
+                raise ConfigurationError("会话目录必须位于已挂载的知识库根目录内") from error
+    resolved = (root / candidate).resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError as error:
+        raise ConfigurationError("会话目录不能越过受控挂载根目录") from error
+    if not str(relative) or str(relative) == ".":
+        raise ConfigurationError("会话目录不能直接使用挂载根目录")
+    return relative.as_posix()
+
+
+def _conversation_display(relative: str) -> str:
+    root = Path(_settings.conversation_host_root).expanduser() if _settings.conversation_host_root else Path(_settings.conversation_export_root)
+    return str(root / relative)
+
+
 def effective_system_preferences() -> dict[str, str]:
-    return {"timezone": _settings.timezone}
+    return {
+        "timezone": _settings.timezone,
+        "conversation_archive_dir": _conversation_display(_settings.conversation_archive_dir),
+        "conversation_ingest_dir": _conversation_display(_settings.conversation_ingest_dir),
+    }
 
 
 async def save_system_preferences(session: AsyncSession, patch: dict) -> dict[str, str]:
@@ -277,6 +323,10 @@ async def save_system_preferences(session: AsyncSession, patch: dict) -> dict[st
     if isinstance(timezone, str):
         stored["timezone"] = timezone
 
+    for field, default in (("conversation_archive_dir", _DEFAULT_CONVERSATION_ARCHIVE_DIR), ("conversation_ingest_dir", _DEFAULT_CONVERSATION_INGEST_DIR)):
+        if field in patch and patch[field] is not None:
+            stored[field] = _conversation_relative(patch[field], default)
+
     if row is None:
         session.add(Setting(scope=_SCOPE, key=_PREFERENCES_KEY, value=stored))
     else:
@@ -285,7 +335,15 @@ async def save_system_preferences(session: AsyncSession, patch: dict) -> dict[st
 
     if isinstance(stored.get("timezone"), str):
         _settings.timezone = stored["timezone"]
-    return effective_system_preferences()
+    archive_relative = _conversation_relative(stored.get("conversation_archive_dir"), _DEFAULT_CONVERSATION_ARCHIVE_DIR)
+    ingest_relative = _conversation_relative(stored.get("conversation_ingest_dir"), _DEFAULT_CONVERSATION_INGEST_DIR)
+    _settings.conversation_archive_dir = archive_relative
+    _settings.conversation_ingest_dir = ingest_relative
+    return {
+        "timezone": _settings.timezone,
+        "conversation_archive_dir": _conversation_display(archive_relative),
+        "conversation_ingest_dir": _conversation_display(ingest_relative),
+    }
 
 
 async def save_model_config(session: AsyncSession, patch: dict) -> dict:

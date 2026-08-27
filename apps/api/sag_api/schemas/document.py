@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, computed_fiel
 
 from sag_api.enums import DocumentStatus
 
+from sag_api.schemas.job import JobOut
+
 
 class MessageItem(BaseModel):
     text: str
@@ -76,3 +78,27 @@ class DocumentOut(BaseModel):
         if "foreign key constraint failed" in normalized:
             return "信息源初始化未完成，文档尚未入库，请重试。"
         return "文档入库失败，请重试；若仍失败，请查看服务日志。"
+
+
+class ReprocessFailedDocumentsOut(BaseModel):
+    """信源级失败文档重试结果。
+
+    只把调用时仍处于 FAILED 的文档加入队列；READY、处理中和暂停中的
+    文档不会被这次操作触碰，避免一键恢复造成重复抽取。
+    """
+
+    requested: int
+    queued: int
+    skipped: int
+    jobs: list[JobOut]
+
+
+class ReprocessCurrentModelDocumentsOut(BaseModel):
+    """使用当前 LLM 配置重新处理一个信源中尚未就绪的文档。"""
+
+    requested: int
+    queued: int
+    stopping: int
+    skipped: int
+    model: str
+    jobs: list[JobOut]

@@ -84,6 +84,23 @@ _COLUMN_UPGRADES: dict[str, dict[str, str]] = {
         "error_json": "JSON",
     },
     "universe_dirty_sources": {"revision": "INTEGER NOT NULL DEFAULT 1"},
+    "folder_sync_configs": {
+        "schedule_time": "VARCHAR(5) NOT NULL DEFAULT '00:00'",
+        "weekday": "INTEGER NOT NULL DEFAULT 0",
+        "image_enrichment_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "image_enrichment_mode": "VARCHAR(8) NOT NULL DEFAULT 'vlm'",
+        "image_max_count": "INTEGER NOT NULL DEFAULT 20",
+        "image_max_mb": "INTEGER NOT NULL DEFAULT 10",
+        "directories": "JSON",
+        "current_stage": "VARCHAR(32)",
+        "current_file": "VARCHAR(1024)",
+    },
+    "folder_sync_entries": {
+        "raw_content_hash": "VARCHAR(64) NOT NULL DEFAULT ''",
+        "image_enrichment_status": "VARCHAR(16) NOT NULL DEFAULT 'not_requested'",
+        "image_enrichment_error": "TEXT",
+        "image_count": "INTEGER NOT NULL DEFAULT 0",
+    },
 }
 
 # Existing tables also need newly introduced hot-path indexes. Keep these

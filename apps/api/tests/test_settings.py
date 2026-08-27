@@ -16,6 +16,7 @@ _RESTORE = (
     "llm_temperature",
     "llm_timeout_ms",
     "llm_max_retries",
+    "llm_structured_output_mode",
     "search_strategy",
     "document_chunk_max_tokens",
     "document_chunk_mode",
@@ -180,7 +181,7 @@ def test_mineru_provider_follows_base_url_host(
 
 def test_default_model_output_limit_is_20000(monkeypatch):
     monkeypatch.delenv("SAG_LLM_MAX_TOKENS", raising=False)
-    assert Settings(_env_file=None).llm_max_tokens == 20_000
+    assert Settings(_env_file=None).llm_max_tokens == 4_096
 
 
 def test_database_model_config_overrides_environment_default():
@@ -311,10 +312,10 @@ async def test_model_config_crud_masking_and_test(monkeypatch: pytest.MonkeyPatc
                 assert body["effective_document_parser"] == "markitdown"
                 assert body["mineru_provider"] == "302"
                 assert body["mineru_official_model"] == "vlm"
-                assert body["document_extract_concurrency"] == 30
+                assert body["document_extract_concurrency"] == 4
                 assert body["document_chunk_max_tokens"] == 1_000
                 assert body["document_chunk_mode"] == "standard"
-                assert body["llm_timeout_ms"] == 60_000
+                assert body["llm_timeout_ms"] == 180_000
                 assert body["llm_max_retries"] == 2
                 assert "search_top_k" in body and "sag_language" in body
                 assert body["sources"]["llm_model"] in {"default", "database", "environment_policy"}
@@ -378,6 +379,7 @@ async def test_model_config_crud_masking_and_test(monkeypatch: pytest.MonkeyPatc
                         "llm_model": "test-model-x",
                         "llm_timeout_ms": 45_000,
                         "llm_max_retries": 3,
+                        "llm_structured_output_mode": "json_object",
                         "document_chunk_max_tokens": 1_600,
                         "document_chunk_mode": "heading_strict",
                         "search_top_k": 5,
@@ -395,6 +397,7 @@ async def test_model_config_crud_masking_and_test(monkeypatch: pytest.MonkeyPatc
                 assert settings.llm_provider == "anthropic"
                 assert settings.llm_timeout_ms == 45_000
                 assert settings.llm_max_retries == 3
+                assert settings.llm_structured_output_mode == "json_object"
                 assert settings.document_chunk_max_tokens == 1_600
                 assert settings.document_chunk_mode == "heading_strict"
                 runtime_settings = app.state.knowledge_runtime._settings
@@ -408,6 +411,7 @@ async def test_model_config_crud_masking_and_test(monkeypatch: pytest.MonkeyPatc
                 assert g["llm_model"] == "test-model-x" and g["search_top_k"] == 5
                 assert g["sag_language"] == "en"
                 assert g["llm_timeout_ms"] == 45_000 and g["llm_max_retries"] == 3
+                assert g["llm_structured_output_mode"] == "json_object"
                 assert g["document_chunk_max_tokens"] == 1_600
                 assert g["document_chunk_mode"] == "heading_strict"
 

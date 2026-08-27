@@ -171,7 +171,11 @@ async def quick_setup_302(
         raise ConflictError("模型配置已存在，请在设置中修改")
 
     config = await settings_service.save_302_quick_setup(session, body.api_key)
-    await request.app.state.knowledge_runtime.apply_settings(settings, reset_engines=True)
+    await request.app.state.knowledge_runtime.apply_settings(
+        settings,
+        reset_engines=True,
+        wait_for_reset=False,
+    )
     return {"config": config, "capabilities": _capabilities()}
 
 
@@ -196,6 +200,7 @@ async def update_model_config(
         "llm_max_tokens",
         "llm_timeout_ms",
         "llm_max_retries",
+        "llm_structured_output_mode",
         "embedding_model",
         "embedding_base_url",
         "embedding_dimensions",
@@ -206,6 +211,7 @@ async def update_model_config(
     await request.app.state.knowledge_runtime.apply_settings(
         settings,
         reset_engines=engine_changed,
+        wait_for_reset=False,
     )
     return {"config": config, "capabilities": _capabilities()}
 
@@ -218,7 +224,11 @@ async def configure_302_mineru(
 ) -> dict:
     """已有 302 LLM/Embedding 用户一键复用服务端保存的 Key 启用 MinerU。"""
     config = await settings_service.save_302_mineru_setup(session)
-    await request.app.state.knowledge_runtime.apply_settings(settings, reset_engines=False)
+    await request.app.state.knowledge_runtime.apply_settings(
+        settings,
+        reset_engines=False,
+        wait_for_reset=False,
+    )
     return {"config": config, "capabilities": _capabilities()}
 
 

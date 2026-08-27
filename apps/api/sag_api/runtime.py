@@ -115,6 +115,11 @@ class KnowledgeRuntime:
         self._warmup_started = False
         self._mcp_handle: Any | None = None
         self._mcp_started = False
+        self._folder_sync_scheduler: Any | None = None
+        # Engine resets can drain long-running document work.  Keep the task
+        # separately so configuration writes can acknowledge persistence
+        # without holding the HTTP request open until the drain finishes.
+        self._engine_reset_task: asyncio.Task[None] | None = None
 
     @property
     def ready(self) -> bool:
@@ -146,6 +151,12 @@ class KnowledgeRuntime:
                     concurrency=self._settings.job_concurrency,
                 )
                 await self._job_queue.start()
+                from sag_api.services.folder_sync_service import FolderSyncScheduler
+
+                self._folder_sync_scheduler = FolderSyncScheduler(
+                    self._session_factory, self._job_queue, self._settings
+                )
+                await self._folder_sync_scheduler.start()
                 self._warmup_task = self._factory.start_warmup(self._engine_manager)
                 self._warmup_started = True
                 self._mcp_handle = await self._factory.start_mcp(app)
@@ -182,14 +193,64 @@ class KnowledgeRuntime:
             self._ready = False
             await self._cleanup()
 
-    async def apply_settings(self, settings: Any, *, reset_engines: bool) -> None:
-        """Synchronize persisted settings into the live knowledge runtime."""
+    async def apply_settings(
+        self,
+        settings: Any,
+        *,
+        reset_engines: bool,
+        wait_for_reset: bool = True,
+    ) -> None:
+        """Synchronize persisted settings into the live knowledge runtime.
+
+        ``wait_for_reset=False`` is used by HTTP configuration writes.  The
+        settings are applied synchronously, while draining cached engines is
+        scheduled in the background so a long document job cannot turn a
+        successful save into a client timeout.
+        """
         async with self._lock:
             refreshed = settings.model_copy(update={"data_dir": str(self._active_path)})
             for field_name in refreshed.__class__.model_fields:
                 setattr(self._settings, field_name, getattr(refreshed, field_name))
             if reset_engines and self._engine_manager is not None:
-                await self._engine_manager.aclose_all()
+                manager = self._engine_manager
+                task = self._schedule_engine_reset(manager)
+            else:
+                task = None
+        if wait_for_reset and task is not None:
+            await task
+
+    def _schedule_engine_reset(self, manager: Any) -> asyncio.Task[None]:
+        current = self._engine_reset_task
+        if current is not None and not current.done():
+            return current
+
+        async def reset() -> None:
+            try:
+                await manager.aclose_all()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                log.exception("配置保存后的知识引擎异步重置失败")
+
+        task = asyncio.create_task(reset(), name="sag-engine-settings-reset")
+        self._engine_reset_task = task
+
+        def clear_completed(completed: asyncio.Task[None]) -> None:
+            if completed is self._engine_reset_task:
+                self._engine_reset_task = None
+
+        task.add_done_callback(clear_completed)
+        return task
+
+    async def _wait_for_engine_reset(self) -> None:
+        task = self._engine_reset_task
+        if task is None:
+            return
+        try:
+            await task
+        finally:
+            if task is self._engine_reset_task:
+                self._engine_reset_task = None
 
     def _has_started_resources(self) -> bool:
         return any(
@@ -200,10 +261,12 @@ class KnowledgeRuntime:
                 self._job_queue is not None,
                 self._warmup_started,
                 self._mcp_started,
+                self._folder_sync_scheduler is not None,
             )
         )
 
     async def _cleanup(self) -> None:
+        await self._wait_for_engine_reset()
         self._withdraw_app_state()
         failures: list[BaseException] = []
 
@@ -225,6 +288,8 @@ class KnowledgeRuntime:
                 lambda: self._factory.stop_warmup(self._warmup_task),
                 self._release_warmup,
             )
+        if self._folder_sync_scheduler is not None:
+            await teardown(self._folder_sync_scheduler.stop, lambda: setattr(self, "_folder_sync_scheduler", None))
         if self._job_queue is not None:
             await teardown(self._job_queue.stop, lambda: setattr(self, "_job_queue", None))
         if self._agent_runtime is not None:

@@ -1,4 +1,4 @@
-export type WorkspaceSection = "search" | "answer" | "knowledge" | "projects";
+export type WorkspaceSection = "search" | "answer" | "knowledge" | "projects" | "dsh";
 
 export interface WorkspaceSectionDefinition {
   id: WorkspaceSection;
@@ -14,10 +14,12 @@ export const WORKSPACE_SECTIONS: readonly WorkspaceSectionDefinition[] = [
   { id: "answer", href: "/chat", shortcut: "⌘J" },
   { id: "knowledge", href: "/knowledge" },
   { id: "projects", href: "/projects" },
+  // DSH 会话入口与原生问答一致：从工作台菜单进入时总是创建新会话。
+  { id: "dsh", href: "/dsh?new=1" },
 ];
 
 export function isWorkspaceSection(value: unknown): value is WorkspaceSection {
-  return value === "search" || value === "answer" || value === "knowledge" || value === "projects";
+  return value === "search" || value === "answer" || value === "knowledge" || value === "projects" || value === "dsh";
 }
 
 export function workspaceSectionFromPathname(pathname: string): WorkspaceSection | null {
@@ -25,6 +27,7 @@ export function workspaceSectionFromPathname(pathname: string): WorkspaceSection
   if (pathname === "/chat" || pathname.startsWith("/chat/")) return "answer";
   if (pathname === "/knowledge" || pathname.startsWith("/knowledge/")) return "knowledge";
   if (pathname === "/projects" || pathname.startsWith("/projects/")) return "projects";
+  if (pathname === "/dsh" || pathname.startsWith("/dsh/")) return "dsh";
   return null;
 }
 

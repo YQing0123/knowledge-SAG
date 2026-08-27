@@ -63,6 +63,7 @@ function MessageActions({
   content,
   citations,
   createdAt,
+  onSave,
   onRetry,
   onDelete,
   onCitationClick,
@@ -70,6 +71,7 @@ function MessageActions({
   content: string;
   citations: Citation[];
   createdAt?: string;
+  onSave?: () => void;
   onRetry?: () => void;
   onDelete?: () => void;
   onCitationClick?: (citation: Citation) => void;
@@ -84,6 +86,16 @@ function MessageActions({
     <div className="mt-1 flex min-h-7 flex-wrap items-center gap-x-1 gap-y-0">
       <CitationBlock citations={citations} onCitationClick={onCitationClick} />
       <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
+        {onSave && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button" onClick={onSave} className={btn} aria-label="回答入库">
+                <Library className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>入库为 Markdown</TooltipContent>
+          </Tooltip>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -149,6 +161,8 @@ export interface ConversationPanelProps {
   /** 空态建议提问：点击即发送 */
   suggestions?: string[];
   placeholder?: string;
+  /** Embed-only initial SAG source scope, passed unchanged to the native /ask SSE transport. */
+  initialSourceIds?: readonly string[];
   /** 面板可交互时激活会话与焦点；隐藏但保留挂载时设为 false。 */
   active?: boolean;
   /** 紧凑入口可隐藏提示词预览，避免在小面板上叠加弹框。 */
@@ -177,6 +191,7 @@ export function ConversationPanel({
   emptyHint,
   suggestions,
   placeholder,
+  initialSourceIds = [],
   active = true,
   showPromptPreview = true,
   beforeMessages,
@@ -187,7 +202,7 @@ export function ConversationPanel({
   const t = useTranslations("Conversation");
   const locale = useLocale();
   const resolvedPlaceholder = placeholder ?? t("defaultPlaceholder");
-  const { capabilities } = useApp();
+  const { agent, capabilities } = useApp();
   const runtime = useConversationRuntime();
   const session = useConversationSession(sessionId);
   const detailPanel = useDetailPanel();
@@ -220,6 +235,7 @@ export function ConversationPanel({
   const bottomRef = React.useRef<HTMLDivElement>(null);
   const lastScrollAt = React.useRef(0);
   const followOutputRef = React.useRef(true);
+  const restoreComposerFocusRef = React.useRef(false);
   const sendRef = React.useRef<(text: string) => void>(() => {});
   const lastDraftPromptRef = React.useRef<number | null>(null);
 
@@ -392,6 +408,19 @@ export function ConversationPanel({
     [runtime, sessionId, t],
   );
 
+  const saveTranscriptMessage = React.useCallback(async (messageId: string) => {
+    if (!agent?.id || !session.threadId) {
+      toast.error("会话尚未完成初始化，暂时无法入库");
+      return;
+    }
+    try {
+      const result = await api.saveMessageToLibrary(agent.id, session.threadId, messageId);
+      toast.success("回答已入库", { description: `已保存 Markdown：${result.path}` });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "回答入库失败");
+    }
+  }, [agent?.id, session.threadId]);
+
   const renderTranscriptFooter = React.useCallback(
     ({
       message,
@@ -404,6 +433,7 @@ export function ConversationPanel({
             content={message.content}
             citations={message.citations}
             createdAt={message.createdAt}
+            onSave={canMutate ? () => void saveTranscriptMessage(message.id) : undefined}
             onRetry={
               canMutate && previousUser?.content
                 ? () => sendRef.current(previousUser.content)
@@ -422,7 +452,7 @@ export function ConversationPanel({
         </>
       );
     },
-    [deleteTranscriptMessage, handleTranscriptCitation, showPromptPreview, streaming],
+    [deleteTranscriptMessage, handleTranscriptCitation, saveTranscriptMessage, showPromptPreview, streaming],
   );
 
   const transcriptLive = session.run
@@ -446,8 +476,22 @@ export function ConversationPanel({
   }, [messages, streaming]);
 
   React.useEffect(() => {
+    if (streaming || submitting || !restoreComposerFocusRef.current) return;
+    restoreComposerFocusRef.current = false;
+    window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+  }, [streaming, submitting]);
+
+  React.useEffect(() => {
     api.listSources().then(setSources).catch(() => {});
   }, []);
+
+  React.useEffect(() => {
+    if (initialSourceIds.length === 0 || sources.length === 0) return;
+    setScoped((current) => {
+      const additions = sources.filter((source) => initialSourceIds.includes(source.id) && !current.some((item) => item.id === source.id)).map((source) => ({ id: source.id, name: source.name }));
+      return additions.length ? [...current, ...additions] : current;
+    });
+  }, [initialSourceIds, setScoped, sources]);
 
   // 上下文用量估算：CJK ≈1 token/字，其余 ≈1 token/4 字符（无 tokenizer 的专业近似）
   const ctxTokens = React.useMemo(() => {
@@ -533,6 +577,7 @@ export function ConversationPanel({
       return;
     }
 
+    restoreComposerFocusRef.current = true;
     uploadingRef.current = true;
     setUploading(true);
     try {

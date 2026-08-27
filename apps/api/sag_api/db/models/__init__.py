@@ -1,7 +1,9 @@
 """ORM 模型聚合导入 —— 保证 Base.metadata 注册全部表。"""
 
 from sag_api.db.models.agent import Agent, AgentBinding, Message, Thread
+from sag_api.db.models.dsh import DshMessage, DshSession
 from sag_api.db.models.document import Document
+from sag_api.db.models.folder_sync import FolderSyncConfig, FolderSyncEntry
 from sag_api.db.models.job import Job
 from sag_api.db.models.octx import (
     OctxAsset,
@@ -28,6 +30,10 @@ __all__ = [
     "Agent",
     "AgentBinding",
     "Document",
+    "DshMessage",
+    "DshSession",
+    "FolderSyncConfig",
+    "FolderSyncEntry",
     "Job",
     "Message",
     "OctxAsset",

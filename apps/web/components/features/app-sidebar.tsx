@@ -7,16 +7,18 @@ import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Archive,
+  BrainCircuit,
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
   LogOut,
   MessageSquarePlus,
   Settings,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, type DshSessionRecord } from "@/lib/api";
 import { PRODUCT_NAME } from "@/lib/branding";
 import { relativeTime } from "@/lib/format";
 import {
@@ -180,16 +182,46 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
   }, []);
 
   const activeThreadId = pathname.startsWith("/chat/") ? pathname.split("/")[2] : null;
+  const activeDshSessionId = pathname.startsWith("/dsh/") ? pathname.split("/")[2] : null;
+  const [nativeOpen, setNativeOpen] = React.useState(true);
+  const [dshOpen, setDshOpen] = React.useState(true);
+  const [dshSessions, setDshSessions] = React.useState<DshSessionRecord[]>([]);
+  const [dshExpanded, setDshExpanded] = React.useState(false);
+
+  const loadDshSessions = React.useCallback(async () => {
+    const rows = await api.dshListSessions();
+    setDshSessions(rows.filter((session) => !session.archived));
+  }, []);
+
+  React.useEffect(() => {
+    void loadDshSessions().catch(() => undefined);
+    const refresh = () => void loadDshSessions().catch(() => undefined);
+    window.addEventListener("sag:dsh-sessions-changed", refresh);
+    return () => window.removeEventListener("sag:dsh-sessions-changed", refresh);
+  }, [loadDshSessions]);
 
   async function archiveThread(tid: string) {
     if (!agent) return;
     try {
+      const exported = await api.exportThreadMarkdown(agent.id, tid);
       await api.updateThread(agent.id, tid, { archived: true });
       await refreshThreads();
       if (activeThreadId === tid) router.push("/chat");
-      toast.success(t("archived"));
+      toast.success(t("archived"), { description: `已保存 Markdown：${exported.path}` });
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : t("archiveFailed"));
+    }
+  }
+
+  async function deleteThread(tid: string) {
+    if (!agent) return;
+    try {
+      await api.deleteThread(agent.id, tid);
+      await refreshThreads();
+      if (activeThreadId === tid) router.push("/chat");
+      toast.success(t("threadDeleted"));
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : t("deleteFailed"));
     }
   }
 
@@ -198,6 +230,30 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
       await loadMoreThreads();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : t("loadMoreFailed"));
+    }
+  }
+
+  async function archiveDshSession(session: DshSessionRecord) {
+    try {
+      const result = await api.dshArchiveSession(session.id);
+      setDshSessions((current) => current.filter((item) => item.id !== session.id));
+      if (activeDshSessionId === session.id) router.push("/dsh?new=1");
+      window.dispatchEvent(new Event("sag:dsh-sessions-changed"));
+      toast.success("会话已归档", { description: `已保存 Markdown：${result.path}` });
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "会话归档失败，未改变原会话");
+    }
+  }
+
+  async function deleteDshSession(session: DshSessionRecord) {
+    try {
+      await api.dshDeleteSession(session.id);
+      setDshSessions((current) => current.filter((item) => item.id !== session.id));
+      if (activeDshSessionId === session.id) router.push("/dsh?new=1");
+      window.dispatchEvent(new Event("sag:dsh-sessions-changed"));
+      toast.success("DSH 会话已删除");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "DSH 会话删除失败");
     }
   }
 
@@ -235,9 +291,12 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
           </SidebarMenu>
         </SidebarGroup>
 
-        <SidebarGroup className="min-h-0 flex-1 overflow-hidden group-data-[collapsible=icon]:hidden">
+        <SidebarGroup className="min-h-0 overflow-hidden group-data-[collapsible=icon]:hidden">
           <SidebarGroupLabel className="flex items-center pr-1">
-            <span className="flex-1">{t("conversations")}</span>
+            <button type="button" onClick={() => setNativeOpen((value) => !value)} className="flex min-w-0 flex-1 items-center gap-1 text-left" aria-expanded={nativeOpen}>
+              <span className="truncate">原生问答</span>
+              <ChevronDown className={nativeOpen ? "size-3.5" : "size-3.5 -rotate-90"} />
+            </button>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -255,7 +314,7 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
               <TooltipContent side="right">{t("newChat")}</TooltipContent>
             </Tooltip>
           </SidebarGroupLabel>
-          <SidebarMenu className="min-h-0 flex-1 overflow-y-auto pr-1">
+          {nativeOpen ? <SidebarMenu className="max-h-[35vh] overflow-y-auto pr-1">
             {threads.length === 0 && (
               <p className="px-2 py-1.5 text-xs text-muted-foreground">
                 {t("emptyThreads")}
@@ -281,23 +340,42 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
                     </Link>
                   </SidebarMenuButton>
                   {!isLive && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            archiveThread(thread.id);
-                          }}
-                          aria-label={t("archiveThread")}
-                          className="absolute right-2 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded-md text-muted-foreground opacity-0 outline-none transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-hover/menu-item:opacity-100"
-                        >
-                          <Archive className="size-3.5" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right">{t("archive")}</TooltipContent>
-                    </Tooltip>
+                    <>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void deleteThread(thread.id);
+                            }}
+                            aria-label={t("deleteThread")}
+                            className="absolute right-8 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded-md text-muted-foreground opacity-0 outline-none transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-destructive focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-hover/menu-item:opacity-100"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">{t("deleteThread")}</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void archiveThread(thread.id);
+                            }}
+                            aria-label={t("archiveThread")}
+                            className="absolute right-2 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded-md text-muted-foreground opacity-0 outline-none transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-hover/menu-item:opacity-100"
+                          >
+                            <Archive className="size-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">{t("archive")}</TooltipContent>
+                      </Tooltip>
+                    </>
                   )}
                 </SidebarMenuItem>
               );
@@ -348,7 +426,60 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
                 </SidebarMenuButton>
               </SidebarMenuItem>
             ) : null}
-          </SidebarMenu>
+          </SidebarMenu> : null}
+        </SidebarGroup>
+
+        <SidebarGroup className="min-h-0 flex-1 overflow-hidden group-data-[collapsible=icon]:hidden">
+          <SidebarGroupLabel className="flex items-center pr-1">
+            <button type="button" onClick={() => setDshOpen((value) => !value)} className="flex min-w-0 flex-1 items-center gap-1 text-left" aria-expanded={dshOpen}>
+              <span className="truncate">DSH会话</span>
+              <ChevronDown className={dshOpen ? "size-3.5" : "size-3.5 -rotate-90"} />
+            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => router.push("/dsh?new=1")}
+                  aria-label="新建 DSH 会话"
+                  className="grid size-6 place-items-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                >
+                  <BrainCircuit className="size-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">新建 DSH 会话</TooltipContent>
+            </Tooltip>
+          </SidebarGroupLabel>
+          {dshOpen ? <SidebarMenu className="min-h-0 flex-1 overflow-y-auto pr-1">
+            {dshSessions.slice(0, dshExpanded ? undefined : 5).map((session) => (
+              <SidebarMenuItem key={session.id}>
+                <SidebarMenuButton asChild isActive={session.id === activeDshSessionId}>
+                  <Link href={`/dsh/${session.id}`} aria-label={session.title}>
+                    <span className="min-w-0 flex-1 truncate">{session.title || "新 DSH 会话"}</span>
+                    <span className="ml-2 shrink-0 text-[10px] text-muted-foreground transition-opacity group-focus-within/menu-item:opacity-0 group-hover/menu-item:opacity-0">{relativeTime(session.updated_at, timezone, locale)}</span>
+                  </Link>
+                </SidebarMenuButton>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteDshSession(session); }} aria-label="删除 DSH 会话" className="absolute right-8 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded-md text-muted-foreground opacity-0 outline-none transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-destructive focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-hover/menu-item:opacity-100">
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">删除会话</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void archiveDshSession(session); }} aria-label="归档 DSH 会话" className="absolute right-2 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded-md text-muted-foreground opacity-0 outline-none transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-hover/menu-item:opacity-100">
+                      <Archive className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">归档并保存 Markdown</TooltipContent>
+                </Tooltip>
+              </SidebarMenuItem>
+            ))}
+            {!dshSessions.length ? <p className="px-2 py-1.5 text-xs text-muted-foreground">暂无 DSH 会话</p> : null}
+            {dshSessions.length > 5 && !dshExpanded ? <SidebarMenuItem className="pt-1"><SidebarMenuButton type="button" size="sm" onClick={() => setDshExpanded(true)} className="text-muted-foreground hover:text-foreground"><span className="min-w-0 flex-1 truncate">显示更多</span><ChevronDown /></SidebarMenuButton></SidebarMenuItem> : null}
+            {dshExpanded && dshSessions.length > 5 ? <SidebarMenuItem><SidebarMenuButton type="button" size="sm" onClick={() => setDshExpanded(false)} className="text-muted-foreground hover:text-foreground"><span className="min-w-0 flex-1 truncate">收起</span><ChevronUp /></SidebarMenuButton></SidebarMenuItem> : null}
+          </SidebarMenu> : null}
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>

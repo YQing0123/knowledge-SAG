@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2608.12129"><img alt="论文" src="https://img.shields.io/badge/paper-arXiv%3A2608.12129-18181b" /></a>
   <a href="https://pypi.org/project/zleap-sag/"><img alt="PyPI" src="https://img.shields.io/pypi/v/zleap-sag?label=zleap--sag&color=18181b" /></a>
-  <img alt="SAG 版本" src="https://img.shields.io/badge/SAG-v1.8.3-18181b" />
+  <img alt="SAG 版本" src="https://img.shields.io/badge/SAG-v1.9.0-18181b" />
   <a href="https://github.com/Zleap-AI/SAG/releases/latest"><img alt="桌面版发布" src="https://img.shields.io/github/v/release/Zleap-AI/SAG?label=desktop&color=18181b" /></a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776ab" />
   <img alt="Node" src="https://img.shields.io/badge/Node-20%2B-339933" />
@@ -212,6 +212,20 @@ Docker Compose 或 `.env` 中的 `SAG_LLM_*` 用于提供首次启动时的模�
 </p>
 
 PDF 在 MinerU 配置完整时优先使用 MinerU；未配置或解析失败时自动回退本地 MarkItDown。其他 Office 和文本格式默认使用 MarkItDown。
+
+#### 自动同步本地文件夹
+
+Docker 部署可为每个知识库配置本地目录自动同步。复制 `.env.example` 为 `.env` 后，将 `SAG_SYNC_HOST_PATH` 设为需要采集的宿主机根目录；它会被只读挂载到 API 容器的 `/sync`。在知识库详情页点击工具栏的“本地文件夹同步”图标，在弹窗内直接浏览并选择该挂载目录下的文件夹，无需手填路径。
+
+同步以文件相对路径和 SHA-256 内容哈希去重：新增文件会上传，内容变更会新建版本并清理旧版本，未变化文件不会重复入库。默认不会因源文件删除而删除知识库文档；需要双向删除时，在该知识库设置中显式开启“同步删除”。同步计划可选实时轮询、每 N 秒、每天指定时间或每周指定星期和时间；每日/每周计划按 `SAG_TIMEZONE`（默认 `Asia/Shanghai`）执行。默认规则只采集 Markdown，可在页面设置包含和排除规则。
+
+```bash
+cp .env.example .env
+# 例如：SAG_SYNC_HOST_PATH=/Users/me/Documents/knowledge-notes
+docker compose up -d --build
+```
+
+启用“采集 Markdown 图片文字”后，系统会在受控目录内解析相对图片引用，复制图片到缓存并调用 SAG 设置中的 MinerU 官方服务。默认使用视觉模型，也可切换 OCR；识别结果会以 `图片解析补充（MinerU）` 提醒块和独立 `text` 代码块附加在原 Markdown 末尾，并记录来源文件、行号、图片路径和 SHA-256。图片解析失败时仍保留原文，下一轮同步会自动重试。该功能需要配置 MinerU 官方 API Key，不会在本地额外部署 OCR 组件。
 
 ### 检索并核对原文
 

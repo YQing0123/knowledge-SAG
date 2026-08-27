@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2608.12129"><img alt="Paper" src="https://img.shields.io/badge/paper-arXiv%3A2608.12129-18181b" /></a>
   <a href="https://pypi.org/project/zleap-sag/"><img alt="PyPI" src="https://img.shields.io/pypi/v/zleap-sag?label=zleap--sag&color=18181b" /></a>
-  <img alt="SAG version" src="https://img.shields.io/badge/SAG-v1.8.3-18181b" />
+  <img alt="SAG version" src="https://img.shields.io/badge/SAG-v1.9.0-18181b" />
   <a href="https://github.com/Zleap-AI/SAG/releases/latest"><img alt="Desktop release" src="https://img.shields.io/github/v/release/Zleap-AI/SAG?label=desktop&color=18181b" /></a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776ab" />
   <img alt="Node" src="https://img.shields.io/badge/Node-20%2B-339933" />
@@ -212,6 +212,20 @@ Create a source and add Markdown, text, PDF, Office, or other supported document
 </p>
 
 PDF files use MinerU when it is configured and fall back to local MarkItDown when it is unavailable or fails. Other Office and text formats use MarkItDown by default.
+
+#### Automatically sync a local folder
+
+Docker deployments can configure automatic local-folder synchronization for each knowledge source. Copy `.env.example` to `.env`, set `SAG_SYNC_HOST_PATH` to the host root that may be collected, and Compose mounts it read-only at `/sync` in the API container. Click the local-folder-sync icon in a source detail page and browse to select a folder inside that mount; no path entry is needed.
+
+Synchronization uses the relative path and SHA-256 content hash: new files are uploaded, changed files create a fresh version and retire the previous document, and unchanged files are not re-ingested. Source deletion does not delete knowledge by default; enable “sync deletions” for that source when two-way deletion is intended. Choose watch polling, every N seconds, daily at a specified time, or weekly on a specified day and time. Daily and weekly schedules use `SAG_TIMEZONE` (default `Asia/Shanghai`). The default rule collects Markdown and the include/exclude rules can be changed in the source settings.
+
+```bash
+cp .env.example .env
+# for example: SAG_SYNC_HOST_PATH=/Users/me/Documents/knowledge-notes
+docker compose up -d --build
+```
+
+When “Collect Markdown image text” is enabled, relative image references inside the controlled folder are resolved, copied to a cache, and sent to the official MinerU service configured in SAG settings. Vision mode is the default, with OCR as an alternative. Results are appended as a `图片解析补充（MinerU）` callout with a separate `text` code block and include source file, line number, image path, and SHA-256. Failed images leave the original Markdown intact and retry on the next sync; this requires an official MinerU API key and does not add a local OCR container.
 
 ### Search and verify the source
 

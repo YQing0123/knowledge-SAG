@@ -48,3 +48,6 @@ apps/api/dist/desktop/
 
 # skill installer output (npx skills add)
 .agents/
+.playwright-cli/
+.dsh-vision-toolkit/
+.tmp-*.json

@@ -112,7 +112,9 @@ export function DocumentList({
             <Download className="size-4" />
           </Button>
         )}
-        {document.status === "extracting" && (
+        {(document.status === "pending" ||
+          document.status === "loading" ||
+          document.status === "extracting") && (
           <Button
             variant="ghost"
             size="icon"

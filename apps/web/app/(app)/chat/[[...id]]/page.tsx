@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import { useParams, usePathname, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { DEFAULT_AGENT_AVATAR } from "@/lib/branding";
 import { useApp } from "@/components/features/app-shell";
@@ -18,6 +18,8 @@ export default function ChatPage() {
   const t = useTranslations("ChatPage");
   const { id } = useParams<{ id?: string | string[] }>();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const initialSourceIds = React.useMemo(() => (searchParams.get("source_ids") ?? "").split(",").map((value) => value.trim()).filter(Boolean), [searchParams]);
   const router = useRouter();
   const { agent, appMode } = useApp();
   const runtime = useConversationRuntime();
@@ -93,6 +95,7 @@ export default function ChatPage() {
         ]}
         emptyHint={agent.persona?.greeting || t("emptyHint")}
         placeholder={t("placeholder", { name: agent.name })}
+        initialSourceIds={initialSourceIds}
       />
     </div>
   );

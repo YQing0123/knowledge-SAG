@@ -1224,6 +1224,30 @@ def test_real_markitdown_converts_pdf_and_office_files(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_xlsx_style_failure_falls_back_to_raw_worksheet_xml(tmp_path, monkeypatch):
+    from openpyxl import Workbook
+
+    xlsx = tmp_path / "broken-styles.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Source data"
+    worksheet.append(["Name", "Value"])
+    worksheet.append(["SAG", "Knowledge base"])
+    workbook.save(xlsx)
+
+    def fail_markitdown(_: str) -> str:
+        raise TypeError("expected <class 'openpyxl.styles.fills.Fill'>")
+
+    monkeypatch.setattr(service, "_markitdown_sync", fail_markitdown)
+
+    markdown = await service._convert_with_markitdown(str(xlsx))
+
+    assert "## Source data" in markdown
+    assert "| Name | Value |" in markdown
+    assert "| SAG | Knowledge base |" in markdown
+
+
+@pytest.mark.asyncio
 async def test_mineru_upload_create_poll_and_download_zip(tmp_path, monkeypatch):
     source = tmp_path / "paper.pdf"
     source.write_bytes(b"%PDF-fake")

@@ -22,11 +22,15 @@ class QuickModelSetupRequest(BaseModel):
 
 
 class SystemPreferencesUpdate(BaseModel):
-    timezone: str = Field(min_length=1, max_length=100)
+    timezone: str | None = Field(default=None, min_length=1, max_length=100)
+    conversation_archive_dir: str | None = Field(default=None, min_length=1, max_length=600)
+    conversation_ingest_dir: str | None = Field(default=None, min_length=1, max_length=600)
 
     @field_validator("timezone")
     @classmethod
-    def validate_timezone(cls, value: str) -> str:
+    def validate_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip()
         try:
             ZoneInfo(normalized)
@@ -50,6 +54,9 @@ class ModelConfigUpdate(BaseModel):
     llm_context_window: int | None = Field(default=None, ge=1024, le=2_000_000)
     llm_timeout_ms: int | None = Field(default=None, ge=1_000, le=600_000)
     llm_max_retries: int | None = Field(default=None, ge=0, le=10)
+    llm_structured_output_mode: Literal[
+        "auto", "json_schema", "json_object", "prompt_only"
+    ] | None = None
 
     embedding_model: str | None = Field(default=None, min_length=1, max_length=200)
     embedding_base_url: str | None = Field(default=None, max_length=500)
@@ -101,6 +108,13 @@ class ModelConfigUpdate(BaseModel):
     def reject_null_llm_resilience_fields(cls, value: int | None) -> int:
         if value is None:
             raise ValueError("模型超时与重试次数不能为 null")
+        return value
+
+    @field_validator("llm_structured_output_mode")
+    @classmethod
+    def reject_null_structured_output_mode(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("结构化输出模式不能为 null")
         return value
 
     @field_validator("llm_provider")

@@ -8,6 +8,7 @@ const LLM_FIELDS = new Set([
   "llm_context_window",
   "llm_timeout_ms",
   "llm_max_retries",
+  "llm_structured_output_mode",
 ]);
 
 export function isLlmConfigLocked(config: { locked_fields: string[] }) {

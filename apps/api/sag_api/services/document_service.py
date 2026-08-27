@@ -17,6 +17,9 @@ from sag_api.jobs.scheduling import DELETE_PRIORITY, RESUME_PRIORITY, set_schedu
 from sag_api.services.source_operation_service import touch_source_revision
 
 
+_CURRENT_MODEL_REPROCESS_FLAG = "reprocess_with_current_model"
+
+
 async def _enqueue_persisted_job(job_queue: JobQueue, job_id: str) -> None:
     """Dispatch a committed job with queue-level retry supervision when available."""
     durable = getattr(job_queue, "enqueue_durably", None)
@@ -257,6 +260,186 @@ async def reprocess_document(
         job_queue.begin_source_maintenance(source.id, job.id)
     await _enqueue_persisted_job(job_queue, job.id)
     return job
+
+
+async def reprocess_failed_documents(
+    session: AsyncSession,
+    source: Source,
+    *,
+    job_queue: JobQueue,
+) -> tuple[list[Job], int, int]:
+    """Queue every currently failed document in a source exactly once.
+
+    The status predicate is deliberately applied at selection time and each
+    document is still passed through the single-document CAS in
+    :func:`reprocess_document`. This makes repeated clicks safe: READY and
+    already queued/running documents are never reset or duplicated.
+    """
+
+    failed_documents = list(
+        (
+            await session.scalars(
+                select(Document)
+                .where(
+                    Document.source_id == source.id,
+                    Document.is_active.is_(True),
+                    Document.status == DocumentStatus.FAILED,
+                )
+                .order_by(Document.created_at, Document.id)
+            )
+        ).all()
+    )
+    jobs: list[Job] = []
+    skipped = 0
+    for document in failed_documents:
+        try:
+            jobs.append(
+                await reprocess_document(
+                    session,
+                    source,
+                    document.id,
+                    job_queue=job_queue,
+                )
+            )
+        except ConflictError:
+            # Another request/worker won the state transition. Continue with
+            # the rest of the failed snapshot instead of failing the batch.
+            skipped += 1
+    return jobs, skipped, len(failed_documents)
+
+
+async def reprocess_unready_documents_with_current_model(
+    session: AsyncSession,
+    source: Source,
+    *,
+    job_queue: JobQueue,
+    model: str,
+) -> tuple[list[Job], int, int, int]:
+    """Restart every non-ready document with the live model configuration.
+
+    Failed and paused jobs can be queued immediately. A running worker is
+    cooperatively paused first; the queue observes the payload flag and puts
+    that same job back on the queue after the old engine has released it.
+    """
+
+    documents = list(
+        (
+            await session.scalars(
+                select(Document)
+                .where(
+                    Document.source_id == source.id,
+                    Document.is_active.is_(True),
+                    Document.status.in_(
+                        [
+                            DocumentStatus.PENDING,
+                            DocumentStatus.LOADING,
+                            DocumentStatus.EXTRACTING,
+                            DocumentStatus.PAUSING,
+                            DocumentStatus.PAUSED,
+                            DocumentStatus.FAILED,
+                        ]
+                    ),
+                )
+                .order_by(Document.created_at, Document.id)
+            )
+        ).all()
+    )
+    jobs: list[Job] = []
+    queued = 0
+    stopping = 0
+    skipped = 0
+
+    for document in documents:
+        active_job = await session.scalar(
+            select(Job)
+            .where(
+                Job.document_id == document.id,
+                Job.type == JobType.PROCESS_DOCUMENT,
+                Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PAUSED]),
+            )
+            .order_by(Job.created_at.desc())
+            .limit(1)
+        )
+
+        if active_job is None:
+            if document.status != DocumentStatus.FAILED:
+                skipped += 1
+                continue
+            try:
+                job = await reprocess_document(session, source, document.id, job_queue=job_queue)
+            except ConflictError:
+                skipped += 1
+            else:
+                jobs.append(job)
+                queued += 1
+            continue
+
+        payload = dict(active_job.payload or {})
+        payload.pop("pause_requested", None)
+        payload.pop("resume_requested", None)
+        payload[_CURRENT_MODEL_REPROCESS_FLAG] = {"model": model}
+
+        if active_job.status == JobStatus.RUNNING:
+            if document.status not in {
+                DocumentStatus.PENDING,
+                DocumentStatus.LOADING,
+                DocumentStatus.EXTRACTING,
+            }:
+                skipped += 1
+                continue
+            changed = await session.execute(
+                update(Job)
+                .where(Job.id == active_job.id, Job.status == JobStatus.RUNNING)
+                .values(status=JobStatus.PAUSED, payload=payload, error=None)
+                .execution_options(synchronize_session=False)
+            )
+            if not changed.rowcount:
+                skipped += 1
+                continue
+            await session.execute(
+                update(Document)
+                .where(Document.id == document.id, Document.status == document.status)
+                .values(status=DocumentStatus.PAUSING, error=None)
+                .execution_options(synchronize_session=False)
+            )
+            await session.commit()
+            stopping += 1
+            continue
+
+        if active_job.status == JobStatus.PAUSED:
+            if document.status != DocumentStatus.PAUSED:
+                skipped += 1
+                continue
+            job_values = {
+                "status": JobStatus.QUEUED,
+                "payload": set_scheduler(payload, priority=RESUME_PRIORITY, blocked_reason=None),
+                "started_at": None,
+                "finished_at": None,
+                "error": None,
+            }
+            document_values = {"status": DocumentStatus.PENDING, "error": None}
+        else:
+            job_values = {"payload": payload, "error": None}
+            document_values = {"status": DocumentStatus.PENDING, "error": None}
+
+        changed = await _commit_document_job_transition(
+            session,
+            document,
+            active_job,
+            expected_document_status=document.status,
+            document_values=document_values,
+            expected_job_status=active_job.status,
+            job_values=job_values,
+        )
+        if not changed:
+            skipped += 1
+            continue
+        jobs.append(active_job)
+        queued += 1
+        if active_job.status == JobStatus.QUEUED:
+            await _enqueue_persisted_job(job_queue, active_job.id)
+
+    return jobs, queued, stopping, skipped
 
 
 def _checkpoint_source_id(payload: dict | None) -> str | None:

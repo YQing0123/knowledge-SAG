@@ -225,7 +225,9 @@ function remarkCitationLinks(validNumbers: ReadonlySet<string>) {
         }
 
         const parts: MdNode[] = [];
-        const re = /\[(\d+)\]/g;
+        // DSH prompts the model to write `[#2]`; native answers historically
+        // use `[2]`. Treat both as the same traceable internal citation.
+        const re = /\[#?(\d+)\]/g;
         let last = 0;
         let match: RegExpExecArray | null;
         while ((match = re.exec(child.value))) {
@@ -242,7 +244,7 @@ function remarkCitationLinks(validNumbers: ReadonlySet<string>) {
             // replaces them with buttons, so citation clicks never navigate.
             url: `#citation-${match[1]}`,
             title: null,
-            children: [{ type: "text", value: match[1] }],
+            children: [{ type: "text", value: match[0] }],
             data: { hProperties: { "data-citation": match[1] } },
           });
           last = match.index + match[0].length;
@@ -394,9 +396,9 @@ export const MarkdownContent = React.memo(function MarkdownContent({
                     if (citation) onCitationClick?.(citation);
                   }}
                   className={cn(
-                    "relative -top-px mx-0.5 inline-flex size-[18px] items-center justify-center rounded-full bg-muted font-mono text-[10px] font-semibold leading-none text-muted-foreground no-underline outline-none transition-colors align-baseline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                    "relative -top-px mx-0.5 inline-flex h-[18px] items-center justify-center rounded-sm border border-emerald-200 bg-emerald-50 px-1 font-mono text-[10px] font-semibold leading-none text-emerald-700 no-underline outline-none transition-colors align-baseline focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
                     citation
-                      ? "cursor-pointer hover:bg-muted-foreground/20 hover:text-foreground"
+                      ? "cursor-pointer hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-800 dark:hover:bg-emerald-900/60 dark:hover:text-emerald-200"
                       : "cursor-default opacity-60",
                   )}
                   aria-label={citation ? t("openSource", { number: n }) : t("source", { number: n })}

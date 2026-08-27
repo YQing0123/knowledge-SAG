@@ -129,7 +129,7 @@ async def test_retryable_handler_failure_cannot_revive_concurrently_paused_job(
         paused_document = await session.get(Document, document_id)
         assert paused_job.status == JobStatus.PAUSED
         assert paused_document.status == DocumentStatus.PAUSED
-    assert scheduled == []
+        assert scheduled == []
 
 
 @pytest.mark.asyncio
@@ -622,9 +622,88 @@ async def test_delete_job_stops_retrying_and_remains_hidden_on_terminal_failure(
             assert document_id not in {
                 document.id for document in visible_documents
             }
-            assert scheduled == []
+        assert scheduled == []
     finally:
         await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_current_model_reprocess_requeues_after_running_job_pauses(monkeypatch):
+    from sqlalchemy import update
+
+    from sag_api.core.db import SessionLocal, init_db
+    from sag_api.db.models import Document, Job, Source
+    from sag_api.enums import JobStatus
+    from sag_api.jobs.control import JobPaused
+    from sag_api.jobs.inproc import InProcessAsyncQueue
+    from sag_api.jobs.tasks import TASK_HANDLERS
+
+    await init_db()
+    async with SessionLocal() as session:
+        source = Source(
+            name="current-model-requeue",
+            sag_source_config_id=(f"current-model-requeue-{uuid4().hex}")[:36],
+        )
+        session.add(source)
+        await session.flush()
+        document = Document(
+            source_id=source.id,
+            filename="current-model.md",
+            content_type="text/markdown",
+            size_bytes=10,
+            storage_path="/tmp/current-model.md",
+            status=DocumentStatus.EXTRACTING,
+        )
+        session.add(document)
+        await session.flush()
+        job = Job(
+            type=JobType.PROCESS_DOCUMENT,
+            status=JobStatus.QUEUED,
+            source_id=source.id,
+            document_id=document.id,
+        )
+        session.add(job)
+        await session.commit()
+        job_id, document_id = job.id, document.id
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def pausable_handler(*_args, **_kwargs):
+        entered.set()
+        await release.wait()
+        raise JobPaused
+
+    monkeypatch.setitem(TASK_HANDLERS, JobType.PROCESS_DOCUMENT, pausable_handler)
+    queue = InProcessAsyncQueue(SessionLocal, engine_manager=None, concurrency=1)
+    running = asyncio.create_task(queue._run_job(job_id))
+    await asyncio.wait_for(entered.wait(), timeout=1)
+
+    async with SessionLocal() as session:
+        await session.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(
+                status=JobStatus.PAUSED,
+                payload={"reprocess_with_current_model": {"model": "Qwen/Qwen3.5-122B-A10B"}},
+            )
+        )
+        await session.execute(
+            update(Document)
+            .where(Document.id == document_id)
+            .values(status=DocumentStatus.PAUSING)
+        )
+        await session.commit()
+
+    release.set()
+    await asyncio.wait_for(running, timeout=1)
+
+    async with SessionLocal() as session:
+        requeued = await session.get(Job, job_id)
+        restarted_document = await session.get(Document, document_id)
+        assert requeued.status == JobStatus.QUEUED
+        assert "reprocess_with_current_model" not in requeued.payload
+        assert restarted_document.status == DocumentStatus.PENDING
 
 
 @pytest.mark.asyncio

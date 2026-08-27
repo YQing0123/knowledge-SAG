@@ -363,6 +363,29 @@ async def test_runtime_resets_cached_engines_after_engine_settings_change(
 
 
 @pytest.mark.asyncio
+async def test_runtime_can_acknowledge_settings_before_background_engine_reset(
+    tmp_path: Path,
+) -> None:
+    factory = _RuntimeFactory()
+    runtime = KnowledgeRuntime(settings, object(), active_path=tmp_path, factory=factory)
+    app = SimpleNamespace(state=SimpleNamespace(), source_mcp=None)
+    await runtime.start(app)
+    reset_count = factory.calls.count("engine_manager.stop")
+
+    updated = settings.model_copy(update={"llm_model": "replacement-model"})
+    await runtime.apply_settings(updated, reset_engines=True, wait_for_reset=False)
+
+    # The HTTP handler can return after the live settings are updated; the
+    # potentially slow engine drain runs on the next event-loop turn.
+    assert runtime._settings.llm_model == "replacement-model"
+    assert factory.calls.count("engine_manager.stop") == reset_count
+    await asyncio.sleep(0)
+    assert factory.calls.count("engine_manager.stop") == reset_count + 1
+
+    await runtime.stop()
+
+
+@pytest.mark.asyncio
 async def test_runtime_stop_preserves_replaced_app_state(tmp_path: Path) -> None:
     factory = _RuntimeFactory()
     runtime = KnowledgeRuntime(settings, object(), active_path=tmp_path, factory=factory)

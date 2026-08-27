@@ -9,7 +9,7 @@ import { Grip, Settings2 } from "lucide-react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, isTimeoutApiError } from "@/lib/api";
 import { clearToken, getToken } from "@/lib/auth";
 import {
   APP_INITIALIZATION_DEFAULTS,
@@ -350,6 +350,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     APP_INITIALIZATION_DEFAULTS.workspaceSection,
   );
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
+  // embed 模式（iframe 嵌入）：隐藏左侧主菜单（AppSidebar）与顶部行
+  // （SiteHeader：侧边栏收起 / 面包屑 / 探索），只保留内容区，由 URL ?embed=1 触发。
+  // layout 不接收 searchParams（Next 约定），故在 client 组件内读取，水合后生效。
+  const [embed, setEmbed] = React.useState(false);
+  const [embedSidebar, setEmbedSidebar] = React.useState(false);
+  React.useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      setEmbed(params.get("embed") === "1");
+      setEmbedSidebar(params.get("embed_sidebar") === "1");
+    } catch {
+      setEmbed(false);
+    }
+  }, []);
   const [loading, setLoading] = React.useState(true);
   const [quickSetupOpen, setQuickSetupOpen] = React.useState(false);
   const [timezone, setTimezone] = React.useState(DEFAULT_TIME_ZONE);
@@ -561,7 +575,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateTimezone = React.useCallback(async (nextTimezone: string) => {
-    const preferences = await api.saveSystemPreferences({ timezone: nextTimezone });
+    let preferences: Awaited<ReturnType<typeof api.saveSystemPreferences>>;
+    try {
+      preferences = await api.saveSystemPreferences({ timezone: nextTimezone });
+    } catch (error) {
+      if (isTimeoutApiError(error)) {
+        const persisted = await api.getSystemPreferences();
+        if (persisted.timezone === nextTimezone) {
+          preferences = persisted;
+        } else {
+          throw error;
+        }
+      } else {
+        throw error;
+      }
+    }
     setTimezone(preferences.timezone);
     setCapabilities((current) =>
       current ? { ...current, timezone: preferences.timezone } : current,
@@ -927,9 +955,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     onOpenChange={setSidebarOpen}
                     className={cn(windowed ? "h-full min-h-full" : "h-svh min-h-svh")}
                   >
-                    <AppSidebar contained={windowed} />
-                    <SidebarInset className="min-w-0 overflow-hidden">
-                      <SiteHeader />
+                    {(!embed || embedSidebar) && <AppSidebar contained={windowed} />}
+                    <SidebarInset className={cn("min-w-0 overflow-hidden", embed && !embedSidebar && "w-full")}>
+                      {!embed && <SiteHeader />}
                       <ContentArea>{children}</ContentArea>
                     </SidebarInset>
                   </SidebarProvider>

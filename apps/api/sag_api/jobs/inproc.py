@@ -44,6 +44,7 @@ _MAINTENANCE_JOB_TYPES = {
     JobType.DELETE_DOCUMENT,
     JobType.REPROCESS_DOCUMENT,
 }
+_CURRENT_MODEL_REPROCESS_FLAG = "reprocess_with_current_model"
 
 
 def _now() -> datetime:
@@ -978,6 +979,7 @@ class InProcessAsyncQueue(JobQueue):
             release_source_maintenance = False
             retry_source_maintenance = False
             retry_delay_to_schedule: float | None = None
+            requeue_after_pause: str | None = None
 
             try:
                 await handler(session, job, engine_manager=self._engine_manager, job_queue=self)
@@ -1059,11 +1061,41 @@ class InProcessAsyncQueue(JobQueue):
                     )
                     if paused.rowcount:
                         await _converge_document_paused(session, job)
-                        log.info(
-                            "任务已暂停 job=%s progress=%.0f%%",
-                            job_id,
-                            job.progress * 100,
-                        )
+                        await session.refresh(job, attribute_names=["payload"])
+                        payload = dict(job.payload or {})
+                        if payload.pop(_CURRENT_MODEL_REPROCESS_FLAG, None):
+                            resumed = await session.execute(
+                                update(Job)
+                                .where(Job.id == job_id, Job.status == JobStatus.PAUSED)
+                                .values(
+                                    status=JobStatus.QUEUED,
+                                    payload=set_scheduler(
+                                        payload,
+                                        priority=RESUME_PRIORITY,
+                                        blocked_reason=None,
+                                    ),
+                                    started_at=None,
+                                    finished_at=None,
+                                    error=None,
+                                )
+                            )
+                            if resumed.rowcount:
+                                await session.execute(
+                                    update(Document)
+                                    .where(
+                                        Document.id == job.document_id,
+                                        Document.status == DocumentStatus.PAUSED,
+                                    )
+                                    .values(status=DocumentStatus.PENDING, error=None)
+                                )
+                                requeue_after_pause = job_id
+                                log.info("任务已切换为当前模型重新排队 job=%s", job_id)
+                        else:
+                            log.info(
+                                "任务已暂停 job=%s progress=%.0f%%",
+                                job_id,
+                                job.progress * 100,
+                            )
             except Exception as e:  # noqa: BLE001
                 await session.rollback()
                 job = await session.get(Job, job_id)
@@ -1164,6 +1196,8 @@ class InProcessAsyncQueue(JobQueue):
             await session.commit()
             if retry_delay_to_schedule is not None:
                 self._schedule_retry(job_id, retry_delay_to_schedule)
+            if requeue_after_pause is not None:
+                await self.enqueue_durably(requeue_after_pause)
             if retry_source_maintenance and claimed_source_id:
                 if self._source_maintenance_dispatched.get(claimed_source_id) == job_id:
                     self._source_maintenance_dispatched.pop(claimed_source_id, None)

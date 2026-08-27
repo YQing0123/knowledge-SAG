@@ -11,6 +11,9 @@ import type {
   BindingTargetType,
   Capabilities,
   Doc,
+  FolderSyncConfig,
+  FolderSyncConfigPatch,
+  FolderSyncDirectoryList,
   MessagePage,
   ModelConfig,
   ModelConfigPatch,
@@ -43,6 +46,8 @@ import type {
   ProjectTask,
   ProjectStage,
   TaskDailyNode,
+  ReprocessFailedDocumentsResult,
+  ReprocessCurrentModelDocumentsResult,
 } from "./types";
 
 /** 浏览器通过局域网 IP 打开前端时，自动将 API 指向同主机 8000 端口。 */
@@ -94,6 +99,49 @@ export class ApiError extends Error {
   }
 }
 
+export function isTimeoutApiError(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError &&
+    (error.code === "timeout" || error.code.includes("timeout") || error.status === 504)
+  );
+}
+
+/** Confirm a timed-out settings write against the server's persisted view. */
+export function modelConfigMatchesPatch(
+  config: ModelConfig,
+  patch: ModelConfigPatch,
+): boolean {
+  const normalizeComparable = (key: string, value: unknown) => {
+    if (typeof value !== "string") return value;
+    const normalized = value.trim().replace(/\/$/, "");
+    if (key === "llm_base_url" || key === "embedding_base_url" || key === "mineru_base_url") {
+      return normalized.replace("https://api.302.ai", "https://api.302ai.cn");
+    }
+    return normalized;
+  };
+  for (const [key, value] of Object.entries(patch)) {
+    if (key === "llm_api_key") {
+      if (Boolean(value) !== config.llm_api_key_set) return false;
+      continue;
+    }
+    if (key === "embedding_api_key") {
+      if (Boolean(value) !== config.embedding_api_key_set) return false;
+      continue;
+    }
+    if (key === "mineru_api_key") {
+      if (Boolean(value) !== config.mineru_api_key_set) return false;
+      continue;
+    }
+    if (
+      normalizeComparable(key, (config as unknown as Record<string, unknown>)[key]) !==
+      normalizeComparable(key, value)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export interface UploadDocumentOptions {
   folderImportId?: string;
 }
@@ -139,6 +187,59 @@ export interface EvalCompareResponse {
   judges: EvalJudge[];
   judge_enabled: boolean;
   judge_reason: string | null;
+}
+
+export interface DshCapabilities {
+  groups: Array<{ id: string; name: string; models: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    input_modalities?: string[];
+    context_window?: number;
+    reasoning_efforts?: Array<{ id: string; name: string; description?: string }>;
+    default_reasoning_effort?: string;
+  }> }>;
+  permission_presets: string[];
+  modes?: string[];
+}
+
+export interface DshStreamBody {
+  session_id: string;
+  query: string;
+  source_ids: string[];
+  provider: string;
+  model: string;
+  reasoning_effort?: string;
+  permission_preset: string;
+  mode: "controlled" | "agent";
+  web_enabled: boolean;
+  attachments: Array<{ id: string; name: string; media_type: string }>;
+}
+
+export interface DshSessionRecord {
+  id: string;
+  title: string;
+  source_ids: string[];
+  provider: string;
+  model: string;
+  permission_preset: string;
+  mode: "controlled" | "agent";
+  web_enabled: boolean;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DshMessageRecord {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant";
+  content: string;
+  attachments: Array<{ id: string; name: string; media_type: string }>;
+  retrieval_hits: number;
+  context: Record<string, unknown>;
+  event_summary: Array<Record<string, unknown>>;
+  created_at: string;
 }
 
 export interface GlobalSearchStreamHandlers {
@@ -440,12 +541,41 @@ async function streamGlobalSearch(
   return completed;
 }
 
+async function dshCapabilities(): Promise<DshCapabilities> {
+  return request<DshCapabilities>("/api/v1/dsh/capabilities");
+}
+
+async function dshStream(body: DshStreamBody, signal?: AbortSignal): Promise<Response> {
+  const token = getToken();
+  const response = await fetch(`${API_BASE}/api/v1/dsh/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept-Language": readClientLocale(),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } | null;
+    throw new ApiError(response.status, payload?.error?.code ?? "dsh_gateway", payload?.error?.message ?? response.statusText);
+  }
+  return response;
+}
+
 interface RequestOptions extends RequestInit {
   redirectOnUnauthorized?: boolean;
+  /** Mutations may include a bounded engine/storage drain after commit. */
+  timeoutMs?: number;
 }
 
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const { redirectOnUnauthorized = true, ...requestInit } = opts;
+  const {
+    redirectOnUnauthorized = true,
+    timeoutMs: requestedTimeoutMs,
+    ...requestInit
+  } = opts;
   const token = getToken();
   const headers: Record<string, string> = {
     ...(requestInit.headers as Record<string, string>),
@@ -457,13 +587,15 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   if (!headers["Accept-Language"])
     headers["Accept-Language"] = readClientLocale();
 
-  // 30s 超时护栏（SSE 流式接口不走此函数，不受影响）
-  const timeoutSignal = AbortSignal.timeout(30_000);
+  const method = requestInit.method ?? "GET";
+  // Reads remain short and bounded; writes get a longer safety window because
+  // storage and engine operations can legitimately drain in-flight work.
+  const timeoutMs = requestedTimeoutMs ?? (method === "GET" ? 30_000 : 90_000);
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const signal = requestInit.signal
     ? AbortSignal.any([requestInit.signal, timeoutSignal])
     : timeoutSignal;
 
-  const method = requestInit.method ?? "GET";
   const startMs = Date.now();
   let res: Response;
   try {
@@ -479,7 +611,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
       duration_ms: durationMs,
       error_code: isTimeout ? "timeout" : isAbort ? "aborted" : "network",
       error_message: isTimeout
-        ? "Request timed out after 30s"
+        ? `Request timed out after ${timeoutMs}ms`
         : isAbort
           ? "Request was cancelled"
           : "Network error — server unreachable or DNS failure",
@@ -683,7 +815,7 @@ export const api = {
   capabilities: () => request<Capabilities>("/api/v1/system/capabilities"),
   getSystemPreferences: () =>
     request<SystemPreferences>("/api/v1/system/preferences"),
-  saveSystemPreferences: (preferences: SystemPreferences) =>
+  saveSystemPreferences: (preferences: Partial<SystemPreferences>) =>
     request<SystemPreferences>("/api/v1/system/preferences", {
       method: "PUT",
       body: JSON.stringify(preferences),
@@ -742,6 +874,21 @@ export const api = {
     request<{ ok: boolean }>(`/api/v1/sources/${id}`, { method: "DELETE" }),
   syncSource: (id: string) =>
     request<{ id: string; type: string }>(`/api/v1/sources/${id}/sync`, {
+      method: "POST",
+    }),
+  getFolderSyncConfig: (id: string) =>
+    request<FolderSyncConfig>(`/api/v1/sources/${id}/folder-sync`),
+  saveFolderSyncConfig: (id: string, body: FolderSyncConfigPatch) =>
+    request<FolderSyncConfig>(`/api/v1/sources/${id}/folder-sync`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  getFolderSyncDirectories: (id: string, path = "") =>
+    request<FolderSyncDirectoryList>(
+      `/api/v1/sources/${id}/folder-sync/directories?path=${encodeURIComponent(path)}`,
+    ),
+  runFolderSync: (id: string) =>
+    request<{ job_id: string; status: string }>(`/api/v1/sources/${id}/folder-sync/run`, {
       method: "POST",
     }),
 
@@ -815,6 +962,16 @@ export const api = {
     request<BackgroundJob>(`/api/v1/sources/${sid}/documents/${did}/reprocess`, {
       method: "POST",
     }),
+  reprocessFailedDocuments: (sid: string) =>
+    request<ReprocessFailedDocumentsResult>(
+      `/api/v1/sources/${sid}/documents/reprocess-failed`,
+      { method: "POST" },
+    ),
+  reprocessCurrentModelDocuments: (sid: string) =>
+    request<ReprocessCurrentModelDocumentsResult>(
+      `/api/v1/sources/${sid}/documents/reprocess-current-model`,
+      { method: "POST" },
+    ),
   pauseDocument: (sid: string, did: string) =>
     request<BackgroundJob>(`/api/v1/sources/${sid}/documents/${did}/pause`, {
       method: "POST",
@@ -887,6 +1044,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(b),
     }),
+  exportThreadMarkdown: (id: string, tid: string) =>
+    request<{ ok: boolean; path: string }>(
+      `/api/v1/agents/${id}/threads/${tid}/export-markdown`,
+      { method: "POST" },
+    ),
   createThread: (id: string, title?: string, signal?: AbortSignal) =>
     request<Thread>(`/api/v1/agents/${id}/threads`, {
       method: "POST",
@@ -901,6 +1063,11 @@ export const api = {
       {
         method: "DELETE",
       },
+    ),
+  saveMessageToLibrary: (id: string, tid: string, mid: string) =>
+    request<{ ok: boolean; path: string }>(
+      `/api/v1/agents/${id}/threads/${tid}/messages/${mid}/save-to-library`,
+      { method: "POST" },
     ),
   listMessages: (
     id: string,
@@ -946,6 +1113,18 @@ export const api = {
     ),
   deleteThread: (id: string, tid: string) =>
     request(`/api/v1/agents/${id}/threads/${tid}`, { method: "DELETE" }),
+
+  // DSH conversation gateway (SAG-authenticated server-side proxy)
+  dshCapabilities,
+  dshStream,
+  dshListSessions: () => request<DshSessionRecord[]>('/api/v1/dsh/sessions'),
+  dshCreateSession: (body: Partial<DshSessionRecord>) => request<DshSessionRecord>('/api/v1/dsh/sessions', { method: 'POST', body: JSON.stringify(body) }),
+  dshPatchSession: (sessionId: string, body: Partial<DshSessionRecord>) => request<DshSessionRecord>(`/api/v1/dsh/sessions/${sessionId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  dshDeleteSession: (sessionId: string) => request<{ ok: boolean }>(`/api/v1/dsh/sessions/${sessionId}`, { method: 'DELETE' }),
+  dshArchiveSession: (sessionId: string) => request<{ ok: boolean; path: string }>(`/api/v1/dsh/sessions/${sessionId}/archive`, { method: 'POST' }),
+  dshSaveMessageToLibrary: (sessionId: string, messageId: string) => request<{ ok: boolean; path: string }>(`/api/v1/dsh/sessions/${sessionId}/messages/${messageId}/save-to-library`, { method: 'POST' }),
+  dshListMessages: (sessionId: string) => request<DshMessageRecord[]>(`/api/v1/dsh/sessions/${sessionId}/messages`),
+  dshCreateMessage: (sessionId: string, body: Omit<Partial<DshMessageRecord>, "id" | "session_id" | "created_at"> & Pick<DshMessageRecord, "role" | "content">) => request<DshMessageRecord>(`/api/v1/dsh/sessions/${sessionId}/messages`, { method: 'POST', body: JSON.stringify(body) }),
 
   // 搜索
   globalSearch: (b: GlobalSearchBody, signal?: AbortSignal) =>

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from sqlalchemy import select
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +20,7 @@ from sag_api.core.deps import (
 from sag_api.core.error_taxonomy import ErrorCode
 from sag_api.core.errors import ConfigurationError, ConflictError, NotFoundError
 from sag_api.core.logging import get_logger
-from sag_api.db.models import User
+from sag_api.db.models import Message, User
 from sag_api.generation import LLMClient
 from sag_api.sag import EngineManager
 from sag_api.schemas.agent import (
@@ -39,6 +40,7 @@ from sag_api.schemas.agent import (
 from sag_api.schemas.common import Ok
 from sag_api.services import agent_domain as svc
 from sag_api.services import agent_service
+from sag_api.api.v1.dsh import _safe_filename, _write_markdown
 from sag_api.tools import ToolRegistry
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -214,10 +216,80 @@ async def update_thread(
     session: AsyncSession = Depends(get_session),
 ):
     agent = await svc.get_agent(session, agent_id)
-    t = await svc.update_thread(
-        session, agent.id, thread_id, title=body.title, archived=body.archived
-    )
+    thread = await svc.get_thread(session, agent.id, thread_id)
+    if body.archived is True:
+        await _export_native_thread(session, thread)
+    t = await svc.update_thread(session, agent.id, thread_id, title=body.title, archived=body.archived)
     return ThreadOut.model_validate(t)
+
+
+async def _export_native_thread(session: AsyncSession, thread) -> str:
+    rows = list(await session.scalars(select(Message).where(Message.thread_id == thread.id).order_by(Message.created_at.asc())))
+    document = [
+        f"# {thread.title}", "",
+        f"- 归档时间：{datetime.now(UTC).astimezone().strftime('%Y-%m-%d %H:%M')}",
+        f"- 会话创建：{thread.created_at.astimezone().strftime('%Y-%m-%d %H:%M')}",
+        "- 会话类型：原生问答", "", "---", "",
+    ]
+    for message in rows:
+        blocks = [f"## {'用户' if message.role.value == 'user' else 'SAG'}", "", message.content or "（无文本内容）"]
+        if message.attachments:
+            blocks.extend(["", "附件：", *[f"- {item.get('name') or item.get('id') or '未命名附件'}" for item in message.attachments if isinstance(item, dict)]])
+        if message.citations:
+            blocks.extend(["", "引用来源："])
+            for citation in message.citations:
+                if not isinstance(citation, dict):
+                    continue
+                label = str(citation.get('title') or citation.get('source_name') or citation.get('heading') or '来源')
+                url = citation.get('url')
+                blocks.append(f"- [{label}]({url})" if isinstance(url, str) and url else f"- {label}")
+        if message.steps:
+            blocks.extend(["", "<details>", "<summary>处理过程</summary>", ""])
+            for step in message.steps:
+                if isinstance(step, dict):
+                    blocks.append(f"- `{step.get('kind') or 'step'}`：{step.get('label') or step.get('name') or ''}")
+            blocks.extend(["", "</details>"])
+        document.extend(["\n".join(blocks), "", "---", ""])
+    return _write_markdown("archive", thread.title, "\n".join(document))
+
+
+@router.post("/{agent_id}/threads/{thread_id}/messages/{message_id}/save-to-library")
+async def save_message_to_library(
+    agent_id: str,
+    thread_id: str,
+    message_id: str,
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, str | bool]:
+    agent = await svc.get_agent(session, agent_id)
+    thread = await svc.get_thread(session, agent.id, thread_id)
+    message = await session.scalar(select(Message).where(Message.id == message_id, Message.thread_id == thread.id))
+    if message is None or message.role.value != "assistant":
+        raise NotFoundError("可入库的原生回答不存在")
+    document = "\n".join([
+        f"# {_safe_filename(thread.title, 'SAG 回答')}", "",
+        f"- 保存时间：{datetime.now(UTC).astimezone().strftime('%Y-%m-%d %H:%M')}",
+        "- 会话类型：原生问答", "", "---", "",
+        f"## SAG", "", message.content or "（无文本内容）",
+    ])
+    if message.citations:
+        document += "\n\n引用来源：\n" + "\n".join(
+            f"- [{c.get('title') or c.get('source_name') or c.get('heading') or '来源'}]({c.get('url')})" if isinstance(c, dict) and c.get("url") else f"- {c.get('title') or c.get('source_name') or c.get('heading') or '来源'}"
+            for c in message.citations if isinstance(c, dict)
+        )
+    return {"ok": True, "path": _write_markdown("ingest", thread.title, document)}
+
+
+@router.post("/{agent_id}/threads/{thread_id}/export-markdown")
+async def export_thread_markdown(
+    agent_id: str,
+    thread_id: str,
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, str | bool]:
+    agent = await svc.get_agent(session, agent_id)
+    thread = await svc.get_thread(session, agent.id, thread_id)
+    return {"ok": True, "path": await _export_native_thread(session, thread)}
 
 
 @router.get("/{agent_id}/threads/{thread_id}/messages", response_model=MessagePageOut)

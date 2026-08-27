@@ -19,7 +19,13 @@ import {
   type DocumentActivity,
   type DocumentMutationState,
 } from "@/lib/document-activity";
-import type { BackgroundJob, Doc, Source } from "@/lib/types";
+import type {
+  BackgroundJob,
+  Doc,
+  ReprocessCurrentModelDocumentsResult,
+  ReprocessFailedDocumentsResult,
+  Source,
+} from "@/lib/types";
 
 type RefreshOptions = { background?: boolean };
 
@@ -312,6 +318,44 @@ export function useSourceContent(sourceId: string, active = true) {
     }
   }, [refresh, sourceId]);
 
+  const reprocessFailedDocuments = React.useCallback(
+    async (): Promise<ReprocessFailedDocumentsResult> => {
+      const mutationSourceId = sourceId;
+      if (
+        !mutationSourceId
+        || !isCurrentDocumentSource(mutationSourceId, sourceIdRef.current)
+      ) {
+        return { requested: 0, queued: 0, skipped: 0, jobs: [] };
+      }
+      refreshRequestRef.current += 1;
+      const result = await api.reprocessFailedDocuments(mutationSourceId);
+      if (isCurrentDocumentSource(mutationSourceId, sourceIdRef.current)) {
+        await refresh({ background: true });
+      }
+      return result;
+    },
+    [refresh, sourceId],
+  );
+
+  const reprocessCurrentModelDocuments = React.useCallback(
+    async (): Promise<ReprocessCurrentModelDocumentsResult> => {
+      const mutationSourceId = sourceId;
+      if (
+        !mutationSourceId
+        || !isCurrentDocumentSource(mutationSourceId, sourceIdRef.current)
+      ) {
+        return { requested: 0, queued: 0, stopping: 0, skipped: 0, model: "", jobs: [] };
+      }
+      refreshRequestRef.current += 1;
+      const result = await api.reprocessCurrentModelDocuments(mutationSourceId);
+      if (isCurrentDocumentSource(mutationSourceId, sourceIdRef.current)) {
+        await refresh({ background: true });
+      }
+      return result;
+    },
+    [refresh, sourceId],
+  );
+
   return {
     source,
     documents,
@@ -322,5 +366,7 @@ export function useSourceContent(sourceId: string, active = true) {
     processing,
     refresh,
     mutateDocument,
+    reprocessFailedDocuments,
+    reprocessCurrentModelDocuments,
   };
 }

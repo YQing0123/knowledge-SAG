@@ -107,6 +107,19 @@ export function citationCopy(citation: Citation, fallbackIndex: number): Citatio
     };
   }
 
+  // DSH knowledge citations carry the knowledge-base/document title directly.
+  // Prefer it over the generic "knowledge source N" fallback while retaining
+  // the existing event-title behavior for native SAG citations.
+  const sourceTitle = cleanCitationText(citation.title);
+  if (sourceTitle) {
+    return {
+      mode: "source_only",
+      title: sourceTitle,
+      body: cleanCitationText(citation.summary),
+      meta: internalMeta(citation),
+    };
+  }
+
   const number = Number.isInteger(citation.n) && citation.n > 0 ? citation.n : fallbackIndex;
   return {
     mode: "source_only",

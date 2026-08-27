@@ -29,6 +29,7 @@ ParseStateCallback = Callable[[dict[str, Any]], Awaitable[None]]
 _PARSE_LOCKS: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
 _DOCX_EXTENSION = ".docx"
+_XLSX_EXTENSION = ".xlsx"
 _IMAGE_RELATIONSHIP_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 )
@@ -43,6 +44,9 @@ _OFFICE_DOCUMENT_RELATIONSHIP_NAMESPACE = (
 )
 _RELATIONSHIP_EMBED_ATTRIBUTE = f"{{{_OFFICE_DOCUMENT_RELATIONSHIP_NAMESPACE}}}embed"
 _RELATIONSHIP_ID_ATTRIBUTE = f"{{{_OFFICE_DOCUMENT_RELATIONSHIP_NAMESPACE}}}id"
+_SPREADSHEET_RELATIONSHIP_NAMESPACE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -468,7 +472,17 @@ async def _convert_with_markitdown(path: str) -> str:
     except (ImportError, ModuleNotFoundError) as exc:
         raise UpstreamError("MarkItDown 未安装，无法解析该文件") from exc
     except Exception as exc:  # noqa: BLE001 - 第三方转换器错误统一映射
-        raise ValidationError(f"MarkItDown 解析失败：{exc}") from exc
+        # 部分第三方工具导出的 XLSX 含有 openpyxl 无法反序列化的样式表。
+        # 样式不参与知识抽取，直接读取工作表 XML 可以保住单元格文本。
+        if path.lower().endswith(_XLSX_EXTENSION):
+            try:
+                markdown = await asyncio.to_thread(_xlsx_to_markdown_without_styles, path)
+            except Exception as fallback_exc:  # noqa: BLE001 - 保留原始转换错误上下文
+                raise ValidationError(
+                    f"MarkItDown 解析失败：{exc}；XLSX 无样式回退解析失败：{fallback_exc}"
+                ) from exc
+        else:
+            raise ValidationError(f"MarkItDown 解析失败：{exc}") from exc
     markdown = markdown.strip()
     if not _is_meaningful_markdown(markdown):
         raise ValidationError("MarkItDown 未从文件中解析出有效文本")
@@ -520,6 +534,141 @@ def _markitdown_sync(path: str) -> str:
     if not isinstance(markdown, str):
         raise TypeError("MarkItDown 返回了未知结果格式")
     return markdown
+
+
+def _xlsx_to_markdown_without_styles(path: str) -> str:
+    """从 XLSX 的工作表 XML 读取单元格值，刻意不加载可能损坏的 styles.xml。"""
+    with zipfile.ZipFile(path) as archive:
+        shared_strings = _xlsx_shared_strings(archive)
+        sheets = _xlsx_sheet_entries(archive)
+        markdown_sheets = [
+            _xlsx_sheet_to_markdown(archive, entry, name, shared_strings)
+            for name, entry in sheets
+        ]
+    markdown = "\n\n".join(part for part in markdown_sheets if part)
+    if not markdown:
+        raise ValueError("工作簿中没有可读取的单元格文本")
+    return markdown
+
+
+def _xlsx_shared_strings(archive: zipfile.ZipFile) -> list[str]:
+    try:
+        root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
+    except KeyError:
+        return []
+    return [
+        "".join(node.text or "" for node in item.iter() if _xml_local_name(node.tag) == "t")
+        for item in root.iter()
+        if _xml_local_name(item.tag) == "si"
+    ]
+
+
+def _xlsx_sheet_entries(archive: zipfile.ZipFile) -> list[tuple[str, str]]:
+    workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    relationships = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+    targets = {
+        relationship.attrib.get("Id"): posixpath.normpath(
+            posixpath.join("xl", relationship.attrib.get("Target", ""))
+        ).lstrip("/")
+        for relationship in relationships.iter()
+        if _xml_local_name(relationship.tag) == "Relationship"
+    }
+    sheets: list[tuple[str, str]] = []
+    for index, sheet in enumerate(workbook.iter(), start=1):
+        if _xml_local_name(sheet.tag) != "sheet":
+            continue
+        relationship_id = sheet.attrib.get(
+            f"{{{_SPREADSHEET_RELATIONSHIP_NAMESPACE}}}id"
+        )
+        target = targets.get(relationship_id)
+        if target:
+            sheets.append((sheet.attrib.get("name") or f"Sheet {index}", target))
+    if not sheets:
+        raise ValueError("工作簿中没有工作表")
+    return sheets
+
+
+def _xlsx_sheet_to_markdown(
+    archive: zipfile.ZipFile,
+    entry: str,
+    name: str,
+    shared_strings: list[str],
+) -> str:
+    root = ElementTree.fromstring(archive.read(entry))
+    rows: dict[int, dict[int, str]] = {}
+    for cell in root.iter():
+        if _xml_local_name(cell.tag) != "c":
+            continue
+        value = _xlsx_cell_value(cell, shared_strings)
+        if value is None or not value.strip():
+            continue
+        reference = cell.attrib.get("r", "")
+        column = _xlsx_column_index(reference)
+        row = _xlsx_row_index(reference)
+        if column is None or row is None:
+            continue
+        rows.setdefault(row, {})[column] = value
+    if not rows:
+        return ""
+    columns = sorted({column for row in rows.values() for column in row})
+    header = "| " + " | ".join(_xlsx_column_name(column) for column in columns) + " |"
+    divider = "| " + " | ".join("---" for _ in columns) + " |"
+    body = [
+        "| " + " | ".join(_xlsx_markdown_cell(row.get(column, "")) for column in columns) + " |"
+        for _, row in sorted(rows.items())
+    ]
+    return "\n".join([f"## {_xlsx_markdown_cell(name)}", header, divider, *body])
+
+
+def _xlsx_cell_value(cell: ElementTree.Element, shared_strings: list[str]) -> str | None:
+    cell_type = cell.attrib.get("t")
+    if cell_type == "inlineStr":
+        return "".join(
+            node.text or "" for node in cell.iter() if _xml_local_name(node.tag) == "t"
+        )
+    value = next((node.text for node in cell if _xml_local_name(node.tag) == "v"), None)
+    if value is None:
+        formula = next((node.text for node in cell if _xml_local_name(node.tag) == "f"), None)
+        return f"={formula}" if formula else None
+    if cell_type == "s":
+        try:
+            return shared_strings[int(value)]
+        except (IndexError, ValueError):
+            return value
+    if cell_type == "b":
+        return "TRUE" if value == "1" else "FALSE"
+    return value
+
+
+def _xml_local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _xlsx_column_index(reference: str) -> int | None:
+    letters = "".join(character for character in reference if character.isalpha())
+    if not letters:
+        return None
+    result = 0
+    for letter in letters.upper():
+        result = result * 26 + ord(letter) - ord("A") + 1
+    return result
+
+
+def _xlsx_row_index(reference: str) -> int | None:
+    digits = "".join(character for character in reference if character.isdigit())
+    return int(digits) if digits else None
+
+
+def _xlsx_column_name(index: int) -> str:
+    letters: list[str] = []
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        letters.append(chr(ord("A") + remainder))
+    return "".join(reversed(letters))
+
+
+def _xlsx_markdown_cell(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>").strip()
 
 
 def _without_dangling_docx_image_relationships(content: bytes) -> bytes:

@@ -642,6 +642,18 @@ async def _sync_source_unlocked(session: AsyncSession, job: Job, *, job_queue=No
     if source is None:
         raise NotFoundError("信源不存在")
 
+    from sag_api.db.models import FolderSyncConfig
+    from sag_api.services.folder_sync_service import run_folder_sync
+
+    folder_config = await session.get(FolderSyncConfig, source.id)
+    if folder_config is not None and folder_config.enabled:
+        summary = await run_folder_sync(session, source, job_queue)
+        job.progress = 1.0
+        job.payload = {**(job.payload or {}), "folder_sync": summary}
+        await session.commit()
+        log.info("文件夹同步完成 source=%s %s", source.id, summary)
+        return
+
     connector = registry.get(source.connector_kind)
     discovered = await connector.discover(source.config or {})
     fetched = 0
