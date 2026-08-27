@@ -81,7 +81,8 @@
     "search": "Search",
     "answer": "Chat",
     "knowledge": "Knowledge",
-    "settings": "Settings"
+    "settings": "Settings",
+    "projects": "Projects"
   },
   "Settings": {
     "title": "Settings",

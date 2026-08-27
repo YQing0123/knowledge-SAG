@@ -18,6 +18,7 @@ from sag_api.api.v1 import (
     system,
     universe,
 )
+from sag_api.project_management.router import router as project_management_router
 
 api_router = APIRouter(prefix="/api/v1")
 for _module in (
@@ -39,6 +40,7 @@ for _module in (
     octx,
 ):
     api_router.include_router(_module.router)
+api_router.include_router(project_management_router)
 api_router.include_router(search.global_router)
 
 __all__ = ["api_router"]

@@ -81,7 +81,8 @@
     "search": "搜索",
     "answer": "问答",
     "knowledge": "知识库",
-    "settings": "设置"
+    "settings": "设置",
+    "projects": "项目"
   },
   "Settings": {
     "title": "设置",

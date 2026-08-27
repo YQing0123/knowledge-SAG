@@ -13,6 +13,7 @@ describe("workspace sections", () => {
       "search",
       "answer",
       "knowledge",
+      "projects",
     ]);
   });
 
@@ -23,6 +24,8 @@ describe("workspace sections", () => {
     ["/chat/thread-1", "answer"],
     ["/knowledge", "knowledge"],
     ["/knowledge/source-1", "knowledge"],
+    ["/projects", "projects"],
+    ["/projects/example", "projects"],
     ["/settings", null],
   ])("maps %s to %s", (pathname, expected) => {
     expect(workspaceSectionFromPathname(pathname)).toBe(expected);

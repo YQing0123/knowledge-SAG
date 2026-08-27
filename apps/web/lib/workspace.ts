@@ -1,4 +1,4 @@
-export type WorkspaceSection = "search" | "answer" | "knowledge";
+export type WorkspaceSection = "search" | "answer" | "knowledge" | "projects";
 
 export interface WorkspaceSectionDefinition {
   id: WorkspaceSection;
@@ -13,16 +13,18 @@ export const WORKSPACE_SECTIONS: readonly WorkspaceSectionDefinition[] = [
   { id: "search", href: "/search", shortcut: "⌘K" },
   { id: "answer", href: "/chat", shortcut: "⌘J" },
   { id: "knowledge", href: "/knowledge" },
+  { id: "projects", href: "/projects" },
 ];
 
 export function isWorkspaceSection(value: unknown): value is WorkspaceSection {
-  return value === "search" || value === "answer" || value === "knowledge";
+  return value === "search" || value === "answer" || value === "knowledge" || value === "projects";
 }
 
 export function workspaceSectionFromPathname(pathname: string): WorkspaceSection | null {
   if (pathname === "/search" || pathname.startsWith("/search/")) return "search";
   if (pathname === "/chat" || pathname.startsWith("/chat/")) return "answer";
   if (pathname === "/knowledge" || pathname.startsWith("/knowledge/")) return "knowledge";
+  if (pathname === "/projects" || pathname.startsWith("/projects/")) return "projects";
   return null;
 }
 

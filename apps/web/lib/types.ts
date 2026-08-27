@@ -10,6 +10,65 @@ export interface User {
   created_at: string;
 }
 
+export type ProjectStatus = "todo" | "in-progress" | "blocked" | "done" | "cancelled";
+export interface ProjectStage {
+  id: string;
+  label: string;
+  color: string;
+  sort_order: number;
+  has_input: boolean;
+}
+export interface Project {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  color: string;
+  project_type: "stage" | "nostage";
+  stage_index: number;
+  start_date: string | null;
+  end_date: string | null;
+  sort_order: number;
+  legacy_source_path?: string | null;
+  archived: boolean;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  task_count: number;
+  active_count: number;
+}
+export interface TaskDailyNode {
+  task_id: string;
+  node_date: string;
+  state: "todo" | "done" | "skip";
+  note: string;
+}
+export interface ProjectTask {
+  id: string;
+  user_id: string;
+  project_id: string;
+  parent_id: string | null;
+  title: string;
+  status: ProjectStatus;
+  priority: string | null;
+  task_type: "task" | "recurring";
+  start_date: string | null;
+  due_date: string | null;
+  remind_date: string | null;
+  complete_time: string | null;
+  notes: string;
+  tags: string[];
+  repeat_rule: Record<string, unknown> | null;
+  reminders: string[];
+  sort_order: number;
+  legacy_source_file?: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  daily_nodes: TaskDailyNode[];
+}
+export interface ProjectSnapshot { projects: Project[]; tasks: ProjectTask[]; stages: ProjectStage[]; generated_at: string }
+
 export interface TokenResponse {
   access_token: string;
   token_type: string;

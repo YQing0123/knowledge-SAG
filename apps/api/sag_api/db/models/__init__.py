@@ -22,6 +22,7 @@ from sag_api.db.models.universe import (
     UniversePartition,
 )
 from sag_api.db.models.user import User
+from sag_api.project_management.models import Project, ProjectStage, Task, TaskDailyNode
 
 __all__ = [
     "Agent",
@@ -40,6 +41,10 @@ __all__ = [
     "Source",
     "Thread",
     "User",
+    "Project",
+    "ProjectStage",
+    "Task",
+    "TaskDailyNode",
     "ExplorationSession",
     "ExplorationStep",
     "UniverseDirtySource",

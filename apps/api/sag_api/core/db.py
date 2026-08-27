@@ -126,6 +126,8 @@ async def init_db() -> None:
     from sag_api.db import models  # noqa: F401
 
     async with engine.begin() as conn:
+        if settings.database_url.startswith(("postgresql", "postgres")):
+            await conn.exec_driver_sql("CREATE SCHEMA IF NOT EXISTS project_mgmt")
         await conn.run_sync(Base.metadata.create_all)
     await _ensure_columns()
     await _ensure_indexes()

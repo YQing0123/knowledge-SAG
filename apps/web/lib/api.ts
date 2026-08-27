@@ -38,6 +38,11 @@ import type {
   ExplorationSession,
   OctxImportAction,
   OctxTransfer,
+  ProjectSnapshot,
+  Project,
+  ProjectTask,
+  ProjectStage,
+  TaskDailyNode,
 } from "./types";
 
 /** 浏览器通过局域网 IP 打开前端时，自动将 API 指向同主机 8000 端口。 */
@@ -654,6 +659,17 @@ export const api = {
       body: JSON.stringify(b),
     }),
   me: () => request<User>("/api/v1/auth/me"),
+  projectSnapshot: () => request<ProjectSnapshot>("/api/v1/project-management/snapshot"),
+  listProjects: () => request<Project[]>("/api/v1/project-management/projects"),
+  createProject: (body: Record<string, unknown>) => request<Project>("/api/v1/project-management/projects", { method: "POST", body: JSON.stringify(body) }),
+  updateProject: (id: string, body: Record<string, unknown>) => request<Project>(`/api/v1/project-management/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  archiveProject: (id: string) => request<{ ok: boolean }>(`/api/v1/project-management/projects/${id}`, { method: "DELETE" }),
+  updateProjectStages: (body: ProjectStage[]) => request<ProjectStage[]>("/api/v1/project-management/stages", { method: "PUT", body: JSON.stringify(body) }),
+  createTask: (body: Record<string, unknown>) => request<ProjectTask>("/api/v1/project-management/tasks", { method: "POST", body: JSON.stringify(body) }),
+  updateTask: (id: string, body: Record<string, unknown>) => request<ProjectTask>(`/api/v1/project-management/tasks/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteTask: (id: string) => request<{ ok: boolean }>(`/api/v1/project-management/tasks/${id}`, { method: "DELETE" }),
+  reorderTasks: (task_ids: string[]) => request<ProjectTask[]>("/api/v1/project-management/tasks/reorder", { method: "POST", body: JSON.stringify({ task_ids }) }),
+  upsertTaskDailyNode: (taskId: string, nodeDate: string, body: { state: "todo" | "done" | "skip"; note?: string }) => request<TaskDailyNode>(`/api/v1/project-management/tasks/${taskId}/daily-node/${nodeDate}`, { method: "PUT", body: JSON.stringify(body) }),
   storageBootstrap: () =>
     request<StorageBootstrapStatus>("/api/v1/system/storage-bootstrap", {
       redirectOnUnauthorized: false,
