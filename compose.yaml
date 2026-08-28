@@ -9,10 +9,6 @@ services:
       dockerfile: Dockerfile
       args:
         SAG_API_EXTRAS: ""
-    # DSH keeps its Web server loopback-only. A narrowly scoped host proxy
-    # exposes only the authenticated SAG gateway over this IPv4 address.
-    extra_hosts:
-      - "sag-dsh-host:${SAG_DSH_PROXY_HOST:?Set SAG_DSH_PROXY_HOST to the host IPv4 address}"
     environment:
       SAG_ENVIRONMENT: ${SAG_ENVIRONMENT:-dev}
       SAG_DEBUG: "false"
@@ -31,7 +27,8 @@ services:
       SAG_UPLOAD_DIR: /data/uploads
       SAG_SAG_VECTOR_PROVIDER: lancedb
       SAG_SAG_LANGUAGE: ${SAG_SAG_LANGUAGE:-zh}
-      SAG_DSH_GATEWAY_BASE: ${SAG_DSH_GATEWAY_BASE:-}
+      # Docker Desktop provides a stable host route independent of Wi-Fi IP changes.
+      SAG_DSH_GATEWAY_BASE: ${SAG_DSH_GATEWAY_BASE:-http://host.docker.internal:3081/ext/sag-agent-gateway}
       SAG_DSH_GATEWAY_TOKEN: ${SAG_DSH_GATEWAY_TOKEN:-}
       SAG_DSH_GATEWAY_TIMEOUT_SECONDS: ${SAG_DSH_GATEWAY_TIMEOUT_SECONDS:-180}
       SAG_DSH_DELEGATION_SECRET: ${SAG_DSH_DELEGATION_SECRET:-}

@@ -1,11 +1,14 @@
 import http from 'node:http'
 
-const bindHost = process.env.SAG_DSH_PROXY_HOST
+// Bind on all local interfaces by default so the proxy survives Wi-Fi changes.
+// Docker Desktop reaches the host through host.docker.internal.
+const bindHost = process.env.SAG_DSH_PROXY_HOST ?? '0.0.0.0'
 const bindPort = Number(process.env.SAG_DSH_PROXY_PORT ?? '3081')
+const upstreamPort = Number(process.env.SAG_DSH_UPSTREAM_PORT ?? process.env.DSH_WEB_PORT ?? '3080')
 const gatewayPath = '/ext/sag-agent-gateway'
 
-if (!bindHost || !Number.isInteger(bindPort) || bindPort < 1 || bindPort > 65535) {
-  throw new Error('Set SAG_DSH_PROXY_HOST to the host IPv4 address and SAG_DSH_PROXY_PORT to a valid port.')
+if (!Number.isInteger(bindPort) || bindPort < 1 || bindPort > 65535 || !Number.isInteger(upstreamPort) || upstreamPort < 1 || upstreamPort > 65535) {
+  throw new Error('SAG_DSH_PROXY_PORT and SAG_DSH_UPSTREAM_PORT must be valid TCP ports.')
 }
 
 function isGatewayRequest(request) {
@@ -22,10 +25,10 @@ const server = http.createServer((request, response) => {
 
   const upstream = http.request({
     host: '127.0.0.1',
-    port: 3080,
+    port: upstreamPort,
     method: request.method,
     path: request.url,
-    headers: { ...request.headers, host: '127.0.0.1:3080' },
+    headers: { ...request.headers, host: `127.0.0.1:${upstreamPort}` },
   }, upstreamResponse => {
     response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers)
     upstreamResponse.pipe(response)
@@ -39,5 +42,5 @@ const server = http.createServer((request, response) => {
 })
 
 server.listen(bindPort, bindHost, () => {
-  process.stdout.write(`SAG DSH gateway proxy listening on http://${bindHost}:${bindPort}${gatewayPath}\n`)
+  process.stdout.write(`SAG DSH gateway proxy listening on http://${bindHost}:${bindPort}${gatewayPath} -> 127.0.0.1:${upstreamPort}\n`)
 })
