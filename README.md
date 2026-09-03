@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2608.12129"><img alt="Paper" src="https://img.shields.io/badge/paper-arXiv%3A2608.12129-18181b" /></a>
   <a href="https://pypi.org/project/zleap-sag/"><img alt="PyPI" src="https://img.shields.io/pypi/v/zleap-sag?label=zleap--sag&color=18181b" /></a>
-  <img alt="SAG version" src="https://img.shields.io/badge/SAG-v1.9.6-18181b" />
+  <img alt="SAG version" src="https://img.shields.io/badge/SAG-v1.9.7-18181b" />
   <a href="https://github.com/Zleap-AI/SAG/releases/latest"><img alt="Desktop release" src="https://img.shields.io/github/v/release/Zleap-AI/SAG?label=desktop&color=18181b" /></a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776ab" />
   <img alt="Node" src="https://img.shields.io/badge/Node-20%2B-339933" />
@@ -43,6 +43,10 @@ https://github.com/user-attachments/assets/ac805e3c-ab52-4857-bef6-2865f3831b2f
 ## Project
 
 ### Changelog
+
+**September 3, 2026 - v1.9.7**
+
+Upgraded the built-in `zleap-sag` engine from 0.10.0 to 0.12.0. Existing normal/schema-v4 SQLite + LanceDB knowledge stores are opened in place: the four established vector collections and their 1024-dimensional vectors are reused without re-importing documents, rebuilding OCTX packages, or generating embeddings again. The deployment procedure creates a verified full data-volume backup before the runtime switch, so the prior engine and data remain recoverable.
 
 **September 3, 2026 - v1.9.6**
 
@@ -482,7 +486,7 @@ The Electron client packages the same Next.js application together with the loca
 
 ### Use `zleap-sag` directly
 
-[`zleap-sag`](https://pypi.org/project/zleap-sag/) is the continuously maintained Python engine behind the SAG application. Distribution name: `zleap-sag`; import path: `zleap.sag`; Python: 3.11+; license: MIT. The application currently requires `zleap-sag>=0.7.1`.
+[`zleap-sag`](https://pypi.org/project/zleap-sag/) is the continuously maintained Python engine behind the SAG application. Distribution name: `zleap-sag`; import path: `zleap.sag`; Python: 3.11+; license: MIT. The application currently uses `zleap-sag==0.12.0`.
 
 Install the zero-infrastructure local stack:
 
