@@ -300,7 +300,11 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
           </SidebarMenu>
         </SidebarGroup>
 
-        <SidebarGroup className="min-h-0 overflow-hidden group-data-[collapsible=icon]:hidden">
+        <SidebarGroup
+          className={`min-h-0 overflow-hidden group-data-[collapsible=icon]:hidden ${
+            capabilities?.dsh_enabled ? "" : "flex-1"
+          }`}
+        >
           <SidebarGroupLabel className="flex items-center pr-1">
             <button type="button" onClick={() => setNativeOpen((value) => !value)} className="flex min-w-0 flex-1 items-center gap-1 text-left" aria-expanded={nativeOpen}>
               <span className="truncate">原生问答</span>
@@ -323,7 +327,11 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
               <TooltipContent side="right">{t("newChat")}</TooltipContent>
             </Tooltip>
           </SidebarGroupLabel>
-          {nativeOpen ? <SidebarMenu className="max-h-[35vh] overflow-y-auto pr-1">
+          {nativeOpen ? <SidebarMenu
+            className={`min-h-0 overflow-y-auto pr-1 ${
+              capabilities?.dsh_enabled ? "max-h-[35vh]" : "flex-1"
+            }`}
+          >
             {threads.length === 0 && (
               <p className="px-2 py-1.5 text-xs text-muted-foreground">
                 {t("emptyThreads")}

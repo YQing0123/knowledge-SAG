@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/ac805e3c-ab52-4857-bef6-2865f3831b2f
 
 **September 3, 2026 - v1.9.7**
 
-Upgraded the built-in `zleap-sag` engine from 0.10.0 to 0.12.0. Existing normal/schema-v4 SQLite + LanceDB knowledge stores are opened in place: the four established vector collections and their 1024-dimensional vectors are reused without re-importing documents, rebuilding OCTX packages, or generating embeddings again. The deployment procedure creates a verified full data-volume backup before the runtime switch, so the prior engine and data remain recoverable.
+Upgraded the built-in `zleap-sag` engine from 0.10.0 to 0.12.0. Existing normal/schema-v4 SQLite + LanceDB knowledge stores are opened in place: the four established vector collections and their 1024-dimensional vectors are reused without re-importing documents, rebuilding OCTX packages, or generating embeddings again. The deployment procedure creates a verified full data-volume backup before the runtime switch, so the prior engine and data remain recoverable. Also fixed the native Q&A sidebar session list height when DSH is disabled.
 
 **September 3, 2026 - v1.9.6**
 
