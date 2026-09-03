@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- 新增 **设置 → 存储 → 本地存储根目录**：桌面端使用系统目录选择器申请文件夹权限，保存后统一切换文件夹同步、DSH 会话归档和回答入库根目录；Docker 继续要求宿主机路径通过 `SAG_SYNC_HOST_PATH` bind mount 到容器。
+
 ## v1.9.7 · 2026-09-03
 
 - 将 `zleap-sag` 引擎从 0.10.0 升级至 0.12.0。既有 normal/schema-v4 的 SQLite + LanceDB 知识库可原地启动，四个正式向量集合与 1024 维旧向量直接复用，不重新导入文档、不重建 OCTX 包、不触发 Embedding 重算。

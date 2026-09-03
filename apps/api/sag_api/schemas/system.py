@@ -24,6 +24,7 @@ class QuickModelSetupRequest(BaseModel):
 
 class SystemPreferencesUpdate(BaseModel):
     timezone: str | None = Field(default=None, min_length=1, max_length=100)
+    root_dir: str | None = Field(default=None, min_length=1, max_length=600)
     conversation_archive_dir: str | None = Field(default=None, min_length=1, max_length=600)
     conversation_ingest_dir: str | None = Field(default=None, min_length=1, max_length=600)
 

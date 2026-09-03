@@ -231,6 +231,8 @@ Docker deployments can configure automatic local-folder synchronization for each
 
 Synchronization uses the relative path and SHA-256 content hash: new files are uploaded, changed files create a fresh version and retire the previous document, and unchanged files are not re-ingested. Source deletion does not delete knowledge by default; enable “sync deletions” for that source when two-way deletion is intended. Choose watch polling, every N seconds, daily at a specified time, or weekly on a specified day and time. Daily and weekly schedules use `SAG_TIMEZONE` (default `Asia/Shanghai`). The default rule collects Markdown and the include/exclude rules can be changed in the source settings.
 
+The settings page now includes **Settings → Storage → Local storage root**. On desktop, “Choose folder” opens the native system directory picker and requests folder access. After saving, folder sync, DSH conversation archives, and answer ingestion share this root. Docker deployments can only use a path already bind-mounted into the container (normally `/sync`); configure the host directory with `SAG_SYNC_HOST_PATH` and redeploy. The settings page does not bypass Docker Desktop file-sharing permissions or dynamically mount host directories.
+
 ```bash
 cp .env.example .env
 # for example: SAG_SYNC_HOST_PATH=/Users/me/Documents/knowledge-notes

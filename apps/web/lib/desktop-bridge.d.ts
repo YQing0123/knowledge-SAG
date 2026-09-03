@@ -40,6 +40,7 @@ export interface SagDesktopBridge {
   getUpdateState(): Promise<SagDesktopUpdateState>;
   installUpdate(): Promise<{ started: boolean }>;
   getDiagnosticsInfo(): Promise<SagDesktopDiagnosticsInfo>;
+  chooseDirectory(): Promise<{ canceled: boolean; path?: string; granted: boolean }>;
   onUpdateState(
     listener: (state: SagDesktopUpdateState) => void,
   ): () => void;

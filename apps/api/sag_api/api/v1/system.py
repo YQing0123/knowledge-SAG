@@ -234,13 +234,18 @@ async def get_system_preferences(
 @router.put("/preferences")
 async def update_system_preferences(
     body: SystemPreferencesUpdate,
+    request: Request,
     _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, str]:
-    return await settings_service.save_system_preferences(
+    preferences = await settings_service.save_system_preferences(
         session,
         body.model_dump(exclude_unset=True),
     )
+    runtime = getattr(request.app.state, "knowledge_runtime", None)
+    if runtime is not None:
+        await runtime.apply_settings(settings, reset_engines=False, wait_for_reset=False)
+    return preferences
 
 
 @router.get("/dsh-integration")

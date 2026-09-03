@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   shell,
   type IpcMainInvokeEvent,
@@ -132,6 +133,7 @@ function registerIpc(): void {
   ipcMain.removeHandler(DESKTOP_CHANNELS.getUpdateState);
   ipcMain.removeHandler(DESKTOP_CHANNELS.installUpdate);
   ipcMain.removeHandler(DESKTOP_CHANNELS.diagnosticsInfo);
+  ipcMain.removeHandler(DESKTOP_CHANNELS.chooseDirectory);
   ipcMain.handle(DESKTOP_CHANNELS.appInfo, (event) => {
     if (!isTrustedSender(event)) throw new Error("Untrusted IPC sender");
     return { version: app.getVersion(), platform: process.platform, arch: process.arch };
@@ -186,6 +188,17 @@ function registerIpc(): void {
       node: process.versions.node ?? "unknown",
       logFiles,
     };
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.chooseDirectory, async (event) => {
+    if (!isTrustedSender(event)) throw new Error("Untrusted IPC sender");
+    const result = await dialog.showOpenDialog({
+      title: "选择 SAG 根目录",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    const selected = result.filePaths[0];
+    return selected
+      ? { canceled: false, path: path.resolve(selected), granted: true }
+      : { canceled: true, granted: false };
   });
 }
 

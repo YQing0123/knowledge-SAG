@@ -5,6 +5,7 @@ export const DESKTOP_CHANNELS = {
   installUpdate: "desktop:install-update",
   updateState: "desktop:update-state",
   diagnosticsInfo: "desktop:diagnostics-info",
+  chooseDirectory: "desktop:choose-directory",
 } as const;
 
 export type UpdateState =

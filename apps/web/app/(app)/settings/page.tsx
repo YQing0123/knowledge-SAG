@@ -16,6 +16,7 @@ import { McpServiceSettings } from "@/components/features/mcp-service-settings";
 import { ModelConfigForm } from "@/components/features/model-config-form";
 import { PageHeader } from "@/components/features/page-header";
 import { UniverseViewSettings } from "@/components/features/universe-view-settings-panel";
+import { StorageSettings } from "@/components/features/storage-settings";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   SETTINGS_PAGE,
@@ -125,6 +126,10 @@ function SettingsPageContent() {
           >
             <KnowledgeConfigForm />
           </div>
+        </TabsContent>
+
+        <TabsContent value="storage" className="m-0 animate-fade-in">
+          <StorageSettings />
         </TabsContent>
 
         <TabsContent value="integrations" className="m-0 animate-fade-in">

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -236,6 +237,15 @@ async def apply_startup_overrides(session_factory: async_sessionmaker) -> None:
                 log.warning("忽略非法的持久化时区：%s", timezone)
             else:
                 _settings.timezone = timezone
+        persisted_root = preference_values.get("root_dir")
+        if isinstance(persisted_root, str) and persisted_root.strip():
+            root = Path(persisted_root).expanduser().resolve()
+            if root.is_dir():
+                _settings.folder_sync_root = str(root)
+                _settings.conversation_export_root = str(root)
+                _settings.conversation_host_root = str(root)
+            elif str(_settings.conversation_host_root or "").strip() != str(root):
+                log.warning("忽略不可访问的持久化根目录：%s", persisted_root)
         for field, default in (
             ("conversation_archive_dir", _DEFAULT_CONVERSATION_ARCHIVE_DIR),
             ("conversation_ingest_dir", _DEFAULT_CONVERSATION_INGEST_DIR),
@@ -325,8 +335,14 @@ def _conversation_display(relative: str) -> str:
 
 
 def effective_system_preferences() -> dict[str, str]:
+    display_root = (
+        str(Path(_settings.conversation_host_root).expanduser())
+        if _settings.conversation_host_root
+        else str(Path(_settings.folder_sync_root).expanduser())
+    )
     return {
         "timezone": _settings.timezone,
+        "root_dir": display_root,
         "conversation_archive_dir": _conversation_display(_settings.conversation_archive_dir),
         "conversation_ingest_dir": _conversation_display(_settings.conversation_ingest_dir),
     }
@@ -389,6 +405,40 @@ async def save_system_preferences(session: AsyncSession, patch: dict) -> dict[st
     if isinstance(timezone, str):
         stored["timezone"] = timezone
 
+    root_dir = patch.get("root_dir")
+    if isinstance(root_dir, str):
+        candidate = Path(root_dir.strip()).expanduser()
+        if not candidate.is_absolute():
+            raise ConfigurationError("根目录必须使用绝对路径")
+        resolved_root = candidate.resolve()
+        stored["root_dir"] = str(resolved_root)
+        configured_host_root = str(_settings.conversation_host_root or "").strip()
+        sync_root = Path(_settings.folder_sync_root).expanduser().resolve()
+        if (
+            configured_host_root
+            and str(resolved_root) == str(sync_root)
+            and str(Path(configured_host_root).expanduser().resolve()) != str(sync_root)
+        ):
+            raise ConfigurationError(
+                "当前 Docker 已将宿主机目录映射到 /sync；请填写宿主机映射路径，而不是 /sync"
+            )
+        if resolved_root.exists() and not resolved_root.is_dir():
+            raise ConfigurationError("根目录必须是文件夹")
+        if resolved_root.is_dir() and os.access(resolved_root, os.R_OK | os.W_OK):
+            _settings.folder_sync_root = str(resolved_root)
+            _settings.conversation_export_root = str(resolved_root)
+            _settings.conversation_host_root = str(resolved_root)
+        else:
+            if (
+                not configured_host_root
+                or str(resolved_root) != str(Path(configured_host_root).expanduser().resolve())
+                or not sync_root.is_dir()
+            ):
+                raise ConfigurationError(
+                    "Docker 模式只能保存已配置的宿主机映射路径；"
+                    "请先修改 SAG_SYNC_HOST_PATH 并重新部署"
+                )
+
     for field, default in (
         ("conversation_archive_dir", _DEFAULT_CONVERSATION_ARCHIVE_DIR),
         ("conversation_ingest_dir", _DEFAULT_CONVERSATION_INGEST_DIR),
@@ -410,6 +460,11 @@ async def save_system_preferences(session: AsyncSession, patch: dict) -> dict[st
     _settings.conversation_ingest_dir = ingest_relative
     return {
         "timezone": _settings.timezone,
+        "root_dir": (
+            str(Path(_settings.conversation_host_root).expanduser())
+            if _settings.conversation_host_root
+            else str(Path(_settings.folder_sync_root).expanduser())
+        ),
         "conversation_archive_dir": _conversation_display(archive_relative),
         "conversation_ingest_dir": _conversation_display(ingest_relative),
     }

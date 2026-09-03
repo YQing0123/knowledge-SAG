@@ -434,6 +434,7 @@ export interface ModelSetupStatus {
 
 export interface SystemPreferences {
   timezone: string;
+  root_dir: string;
   conversation_archive_dir: string;
   conversation_ingest_dir: string;
 }

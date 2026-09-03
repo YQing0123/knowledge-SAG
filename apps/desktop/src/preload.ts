@@ -11,6 +11,7 @@ const DESKTOP_CHANNELS = {
   getUpdateState: "desktop:get-update-state",
   installUpdate: "desktop:install-update",
   diagnosticsInfo: "desktop:diagnostics-info",
+  chooseDirectory: "desktop:choose-directory",
   updateState: "desktop:update-state",
 } as const;
 
@@ -22,6 +23,7 @@ export interface SagDesktopBridge {
   getUpdateState(): Promise<UpdateState>;
   installUpdate(): Promise<{ started: boolean }>;
   getDiagnosticsInfo(): Promise<DesktopDiagnosticsInfo>;
+  chooseDirectory(): Promise<{ canceled: boolean; path?: string; granted: boolean }>;
   onUpdateState(listener: (state: UpdateState) => void): () => void;
 }
 
@@ -34,6 +36,7 @@ const bridge: SagDesktopBridge = Object.freeze({
   installUpdate: () => ipcRenderer.invoke(DESKTOP_CHANNELS.installUpdate),
   getDiagnosticsInfo: () =>
     ipcRenderer.invoke(DESKTOP_CHANNELS.diagnosticsInfo),
+  chooseDirectory: () => ipcRenderer.invoke(DESKTOP_CHANNELS.chooseDirectory),
   onUpdateState: (listener: (state: UpdateState) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, state: UpdateState) => {
       listener(state);
