@@ -14,6 +14,7 @@ from sag_api.sag import EngineManager
 from sag_api.schemas.common import Ok
 from sag_api.schemas.job import JobOut
 from sag_api.schemas.source import ConnectorOut, SourceCreate, SourceOut, SourceUpdate
+from sag_api.services import mcp_api_key_service
 from sag_api.services.source_operation_service import acquire_source_exclusive_lease
 from sag_api.services.source_service import (
     create_source,
@@ -159,10 +160,11 @@ async def mcp_descriptor(
         "http": {
             "transport": "streamable-http",
             "url": f"{base}/mcp/?source_id={source.id}",
-            "headers": {"Authorization": "Bearer <SAG_TOKEN>"},
+            "headers": {"Authorization": "Bearer <MCP_API_KEY>"},
+            "auth": mcp_api_key_service.public_descriptor_auth(),
             "note": (
                 "在支持 Streamable HTTP MCP 的宿主中填此 URL；"
-                "Dify 配置可使用 transport=streamable_http，并在 Authorization 头携带 Bearer <token>。"
+                "Dify 配置可使用 transport=streamable_http，并在 Authorization 头携带 Bearer sag_mcp_<generated-key>。"
             ),
         },
         "stdio": {

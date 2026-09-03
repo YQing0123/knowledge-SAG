@@ -57,6 +57,7 @@ class Settings(BaseSettings):
 
     # DSH Agent Gateway: the API container owns these values; never expose them to browsers.
     # For Docker Desktop use host.docker.internal, or inject a reachable host/gateway address.
+    dsh_enabled: bool = True
     dsh_gateway_base: str | None = None
     dsh_gateway_token: str | None = None
     dsh_gateway_timeout_seconds: float = Field(default=180.0, ge=1.0, le=600.0)
@@ -116,6 +117,8 @@ class Settings(BaseSettings):
     conversation_host_root: str = ""
     conversation_archive_dir: str = "知识层/会话归档"
     conversation_ingest_dir: str = "知识层/会话入库"
+    # 工作台快速捕捉写入独立的受控挂载目录；文件名与路径始终由服务端生成。
+    quick_capture_dir: str = "/quick-captures"
 
     # ── OCTX 信源导入导出 ───────────────────────────────────────────────
     # 压缩包在一次性受限子进程中校验/打包；这些值是部署可调的硬上限，

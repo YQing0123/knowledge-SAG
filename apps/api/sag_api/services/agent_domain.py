@@ -501,6 +501,7 @@ async def prepare_ask(
     attachments: list[str] | None = None,
     source_ids: list[str] | None = None,
     llm=None,
+    context_window: int | None = None,
 ) -> AskPlan:
     """落库用户消息（含图片附件 meta）、解析历史（超上下文阈值时主动压缩），组装计划。"""
     from sag_api.api.v1.attachments import attachment_path
@@ -535,7 +536,11 @@ async def prepare_ask(
 
     history = await _history(session, thread.id, exclude_id=user_msg.id)
     # 历史预算 = 上下文窗口的 40%（其余留给工具轮/回答）
-    history = await compress_history(history, llm=llm, budget_tokens=int(settings.llm_context_window * 0.4))
+    history = await compress_history(
+        history,
+        llm=llm,
+        budget_tokens=int((context_window or settings.llm_context_window) * 0.4),
+    )
     plan = build_ask_context(
         agent=agent,
         query=query,

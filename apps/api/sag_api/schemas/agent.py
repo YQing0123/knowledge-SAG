@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -99,6 +99,11 @@ class AskRequest(BaseModel):
     source_ids: list[str] = Field(default_factory=list, max_length=8)
     # 联网能力由用户逐轮授权；默认关闭，开启后才暴露 Agent 配置的外部/MCP 工具。
     web_enabled: bool = False
+    # 普通模式保留原有单轮 Agent 检索；深度研究模式由 SAG 自己执行有界多轮检索。
+    mode: Literal["normal", "deep"] = "normal"
+    # 回答模型配置；留空时使用自动迁移的默认回答模型。
+    model_profile_id: str | None = Field(default=None, max_length=64)
+    model_id: str | None = Field(default=None, max_length=300)
     # 旧客户端兼容字段：knowledge_only=false 等价于 web_enabled=true。
     # 新旧字段同时出现时，以语义更明确的 web_enabled 为准。
     knowledge_only: bool | None = None

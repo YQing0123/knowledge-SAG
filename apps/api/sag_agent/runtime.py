@@ -346,13 +346,19 @@ class AgentRuntime:
         rid = run_id or uuid.uuid4().hex
         if rid in self._active:
             raise ValueError(f"run already active: {rid}")
+        merged_metadata = {**dict(agent.metadata), **dict(metadata or {})}
+        # Native deep research may emit auditable progress events before the
+        # Agent loop starts. Reserve those sequence numbers so runtime events
+        # remain monotonic on the same SSE stream.
+        sequence_start = int(merged_metadata.pop("_sequence_start", 0) or 0)
         cancellation = CancellationToken()
         run_context = RunContext(
             run_id=rid,
             data=context,
             messages=messages,
             cancellation=cancellation,
-            metadata={**dict(agent.metadata), **dict(metadata or {})},
+            metadata=merged_metadata,
+            sequence=sequence_start,
         )
         gate = _ApprovalGate()
         handle = RunHandle(rid, run_context, gate)

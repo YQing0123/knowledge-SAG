@@ -132,6 +132,9 @@ const CONVERSATION_TRANSPORT: ConversationTransport = {
     sourceIds,
     knowledgeOnly,
     webEnabled,
+    modelProfileId,
+    modelId,
+    mode,
     onEvent,
     signal,
   }) => {
@@ -144,6 +147,7 @@ const CONVERSATION_TRANSPORT: ConversationTransport = {
       attachment_count: attachmentIds?.length ?? 0,
       source_ids: sourceIds,
       web_enabled: webEnabled,
+      mode,
     });
     const promise = streamAgentAsk(
       agentId,
@@ -154,6 +158,9 @@ const CONVERSATION_TRANSPORT: ConversationTransport = {
         source_ids: sourceIds,
         knowledge_only: knowledgeOnly === true || !webEnabled,
         web_enabled: webEnabled,
+        model_profile_id: modelProfileId,
+        model_id: modelId,
+        mode,
       },
       (event) => {
         // 只记录关键事件，跳过高频 message.delta

@@ -384,6 +384,97 @@ export function reduceAgentRunSteps(
   now = Date.now(),
 ): LiveStep[] {
   switch (event.type) {
+    case "research.started":
+      return upsertToolStep(steps, {
+        ...event,
+        payload: {
+          tool_call_id: "deep-research",
+          name: "deep_research",
+          label: "深度研究",
+          arguments: { query: String(event.payload.query ?? "") },
+        },
+      }, now);
+    case "retrieval.started":
+      return upsertToolStep(steps, {
+        ...event,
+        payload: {
+          tool_call_id: `deep-retrieval-${String(event.payload.round ?? event.turn)}`,
+          name: "search_context",
+          label: `知识库检索（第 ${String(event.payload.round ?? "")} 轮）`,
+          arguments: { query: String(event.payload.query ?? "") },
+          details: { scope: "knowledge" },
+        },
+      }, now);
+    case "retrieval.completed":
+      return finishToolStep(steps, {
+        ...event,
+        payload: {
+          tool_call_id: `deep-retrieval-${String(event.payload.round ?? event.turn)}`,
+          name: "search_context",
+          label: `知识库检索（第 ${String(event.payload.round ?? "")} 轮）`,
+          duration_ms: Number(event.payload.duration_ms ?? 0),
+          details: {
+            scope: "knowledge",
+            count: Number(event.payload.retrieval_hits ?? 0),
+            matches: Array.isArray(event.payload.citations) ? event.payload.citations : [],
+          },
+        },
+      }, now, "done");
+    case "web_search.started":
+      return upsertToolStep(steps, {
+        ...event,
+        payload: {
+          tool_call_id: "deep-web-search",
+          name: "web_search",
+          label: "联网搜索",
+          arguments: { query: String(event.payload.query ?? "") },
+          details: { scope: "internet" },
+        },
+      }, now);
+    case "web_search.completed":
+      return finishToolStep(steps, {
+        ...event,
+        payload: {
+          tool_call_id: "deep-web-search",
+          name: "web_search",
+          label: "联网搜索",
+          duration_ms: Number(event.payload.duration_ms ?? 0),
+          details: { scope: "internet", count: Number(event.payload.web_hits ?? 0) },
+        },
+      }, now, "done");
+    case "web_search.failed":
+    case "research.failed":
+      return finishToolStep(steps, {
+        ...event,
+        payload: {
+          tool_call_id: event.type === "research.failed" ? "deep-research" : "deep-web-search",
+          name: event.type === "research.failed" ? "deep_research" : "web_search",
+          label: event.type === "research.failed" ? "深度研究" : "联网搜索",
+          error: { message: String(event.payload.error ?? "研究步骤失败") },
+          duration_ms: 0,
+        },
+      }, now, "error");
+    case "research.query_rewritten": {
+      const index = steps.findIndex((step) => step.id === "deep-research");
+      if (index < 0) return steps;
+      const next = [...steps];
+      next[index] = { ...next[index], progress: `已改写查询：${String(event.payload.query ?? "")}` };
+      return next;
+    }
+    case "research.progress": {
+      const index = steps.findIndex((step) => step.id === "deep-research");
+      if (index < 0) return steps;
+      const next = [...steps];
+      next[index] = { ...next[index], progress: `已完成第 ${String(event.payload.round ?? "")} 轮，证据 ${String(event.payload.evidence_hits ?? 0)} 条` };
+      return next;
+    }
+    case "research.completed": {
+      const index = steps.findIndex((step) => step.id === "deep-research");
+      if (index < 0) return steps;
+      const next = [...steps];
+      next[index] = { ...next[index], status: "done", ms: elapsed(next[index], now), progress: `完成 ${String(event.payload.rounds ?? "")} 轮研究` };
+      return next;
+    }
     case "turn.started": {
       const settled = settleActiveSteps(steps, now);
       const id = `thinking-${event.turn}`;

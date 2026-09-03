@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUp, Check, Copy, FileUp, Globe2, ImagePlus, Library, Plus, RotateCcw, Square, Trash2, X } from "lucide-react";
+import { ArrowUp, BrainCircuit, Check, Copy, FileUp, Globe2, ImagePlus, Library, Plus, RotateCcw, Search, Square, Trash2, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { toast } from "sonner";
 
@@ -15,7 +15,7 @@ import {
   isComposerCompositionKeyEvent,
   shouldSubmitAfterEnter,
 } from "@/lib/composer-keyboard";
-import type { Citation, Source } from "@/lib/types";
+import type { AnswerModelProfile, Citation, Source } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
 import { useApp } from "@/components/features/app-shell";
@@ -58,6 +58,26 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+const CONVERSATION_INPUT_HEIGHT_KEY = "sag:conversation-input-height";
+const CONVERSATION_INPUT_HEIGHT_EVENT = "sag:conversation-input-height-changed";
+const CONVERSATION_INPUT_MIN_HEIGHT = 24;
+
+function clampConversationInputHeight(value: number) {
+  const viewportMax = Math.max(
+    CONVERSATION_INPUT_MIN_HEIGHT,
+    Math.floor(window.innerHeight * 0.4),
+  );
+  return Math.min(
+    viewportMax,
+    Math.max(CONVERSATION_INPUT_MIN_HEIGHT, Math.round(value)),
+  );
+}
+
+function readConversationInputHeight() {
+  const value = Number(window.localStorage.getItem(CONVERSATION_INPUT_HEIGHT_KEY));
+  return Number.isFinite(value) && value > 0 ? clampConversationInputHeight(value) : null;
+}
 
 function MessageActions({
   content,
@@ -154,6 +174,8 @@ function MessageActions({
 
 export interface ConversationPanelProps {
   sessionId: string;
+  /** Stable thread identity used to persist composer selections across refreshes. */
+  persistenceId?: string | null;
   avatarNode: React.ReactNode;
   heroNode: React.ReactNode;
   emptyTitle: string;
@@ -185,6 +207,7 @@ export interface ConversationPanelProps {
  */
 export function ConversationPanel({
   sessionId,
+  persistenceId,
   avatarNode,
   heroNode,
   emptyTitle,
@@ -215,10 +238,17 @@ export function ConversationPanel({
     setScoped,
     webEnabled,
     setWebEnabled,
+    mode,
+    setMode,
+    modelProfileId,
+    modelId,
+    setModelProfileId,
+    setModelId,
   } =
-    useConversationComposer(sessionId);
+    useConversationComposer(sessionId, persistenceId ?? session?.threadId);
   const imagesRef = React.useRef(images);
   const [sources, setSources] = React.useState<Source[]>([]);
+  const [answerProfiles, setAnswerProfiles] = React.useState<AnswerModelProfile[]>([]);
   const [mentionOpen, setMentionOpen] = React.useState(false);
   const [mentionIdx, setMentionIdx] = React.useState(0);
   const [uploading, setUploading] = React.useState(false);
@@ -239,6 +269,42 @@ export function ConversationPanel({
   const sendRef = React.useRef<(text: string) => void>(() => {});
   const lastDraftPromptRef = React.useRef<number | null>(null);
 
+  React.useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const applyStoredHeight = () => {
+      const height = readConversationInputHeight();
+      if (height !== null) textarea.style.height = `${height}px`;
+    };
+    const persistHeight = () => {
+      const height = clampConversationInputHeight(textarea.getBoundingClientRect().height);
+      const previous = window.localStorage.getItem(CONVERSATION_INPUT_HEIGHT_KEY);
+      if (previous === String(height)) return;
+      window.localStorage.setItem(CONVERSATION_INPUT_HEIGHT_KEY, String(height));
+      window.dispatchEvent(new Event(CONVERSATION_INPUT_HEIGHT_EVENT));
+    };
+
+    applyStoredHeight();
+    textarea.addEventListener("mouseup", persistHeight);
+    textarea.addEventListener("touchend", persistHeight);
+    window.addEventListener(CONVERSATION_INPUT_HEIGHT_EVENT, applyStoredHeight);
+    window.addEventListener("resize", applyStoredHeight);
+
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(persistHeight);
+    resizeObserver?.observe(textarea);
+
+    return () => {
+      textarea.removeEventListener("mouseup", persistHeight);
+      textarea.removeEventListener("touchend", persistHeight);
+      window.removeEventListener(CONVERSATION_INPUT_HEIGHT_EVENT, applyStoredHeight);
+      window.removeEventListener("resize", applyStoredHeight);
+      resizeObserver?.disconnect();
+    };
+  }, []);
+
   if (!session) throw new Error(t("sessionMissing", { id: sessionId }));
   const messages = session.messages;
   const streaming = session.run !== null;
@@ -251,6 +317,24 @@ export function ConversationPanel({
     if (active) runtime.activate(sessionId);
     void runtime.ensureHistory(sessionId);
   }, [active, runtime, sessionId]);
+
+  React.useEffect(() => {
+    let activeRequest = true;
+    void api.getAnswerModelProfiles().then((profiles) => {
+      if (!activeRequest) return;
+      setAnswerProfiles(profiles);
+      const selected = profiles.find((profile) => profile.id === modelProfileId && profile.enabled)
+        ?? profiles.find((profile) => profile.is_default && profile.enabled)
+        ?? profiles.find((profile) => profile.enabled);
+      if (selected) {
+        const selectedModel = selected.models.find((model) => model.id === modelId)
+          ?? selected.models[0];
+        if (selected.id !== modelProfileId) setModelProfileId(selected.id);
+        if ((selectedModel?.id ?? "") !== modelId) setModelId(selectedModel?.id ?? "");
+      }
+    }).catch(() => undefined);
+    return () => { activeRequest = false; };
+  }, [modelId, modelProfileId, setModelId, setModelProfileId]);
 
   React.useEffect(() => {
     if (
@@ -509,6 +593,11 @@ export function ConversationPanel({
   React.useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    const storedHeight = readConversationInputHeight();
+    if (storedHeight !== null) {
+      el.style.height = `${storedHeight}px`;
+      return;
+    }
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [input]);
@@ -564,7 +653,7 @@ export function ConversationPanel({
     const query = (text ?? input).trim();
     const pendingImages = images;
     if ((!query && pendingImages.length === 0) || uploadingRef.current) return;
-    if (!capabilities?.llm_configured) {
+    if (!capabilities?.llm_configured && !answerProfiles.some((profile) => profile.enabled && profile.api_key_set && profile.models.length > 0)) {
       toast.error(t("modelNotConfigured"));
       getDiagnosticsStore().record("error", {
         context: "conversation.send",
@@ -590,6 +679,9 @@ export function ConversationPanel({
         attachmentIds: uploaded.map((item) => item.id),
         sourceIds: scoped.map((source) => source.id),
         webEnabled,
+        mode,
+        modelProfileId: modelProfileId || undefined,
+        modelId: modelId || undefined,
       });
 
       // send 在首次 await 前就登记 run；未登记表示被全局并发边界拒绝，保留草稿。
@@ -926,7 +1018,7 @@ export function ConversationPanel({
               rows={1}
               maxLength={4000}
               placeholder={scoped.length ? t("continueTyping") : resolvedPlaceholder}
-              className="max-h-28 min-h-6 min-w-[12ch] flex-1 resize-none overflow-y-auto bg-transparent py-0 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
+              className="min-h-6 max-h-[40vh] min-w-[12ch] flex-1 resize-y overflow-y-auto bg-transparent py-0 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
             />
           </div>
 
@@ -988,18 +1080,73 @@ export function ConversationPanel({
                     : t("webDisabledDescription")}
                 </TooltipContent>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="min-w-0 max-w-[42vw] truncate px-1 text-xs text-muted-foreground sm:max-w-56">
-                    {capabilities?.llm_model ?? t("unconfiguredModel")}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-72">
-                  {t("currentModel", {
-                    model: capabilities?.llm_model ?? t("unconfiguredModel"),
-                  })}
-                </TooltipContent>
-              </Tooltip>
+              <div className="inline-flex h-7 shrink-0 items-center rounded-md border bg-muted/30 p-0.5" role="group" aria-label="回答模式">
+                <button
+                  type="button"
+                  aria-pressed={mode === "normal"}
+                  disabled={streaming || submitting}
+                  onClick={() => setMode("normal")}
+                  className={cn(
+                    "inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium transition-colors",
+                    mode === "normal" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <Search className="size-3" aria-hidden />
+                  <span>普通模式</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={mode === "deep"}
+                  disabled={streaming || submitting}
+                  onClick={() => setMode("deep")}
+                  title="多轮检索、改写问题并交叉核验证据后回答"
+                  className={cn(
+                    "inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium transition-colors",
+                    mode === "deep" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <BrainCircuit className="size-3" aria-hidden />
+                  <span>深度研究</span>
+                </button>
+              </div>
+              {answerProfiles.some((profile) => profile.enabled && profile.models.length > 0) && (
+                <select
+                  aria-label="回答模型"
+                  value={`${modelProfileId}:${modelId}`}
+                  disabled={streaming || submitting}
+                  onChange={(event) => {
+                    const separator = event.target.value.indexOf(":");
+                    const profileId = separator >= 0 ? event.target.value.slice(0, separator) : event.target.value;
+                    const selectedModelId = separator >= 0 ? event.target.value.slice(separator + 1) : "";
+                    const profile = answerProfiles.find((item) => item.id === profileId);
+                    setModelProfileId(profileId);
+                    setModelId(selectedModelId || profile?.models[0]?.id || "");
+                  }}
+                  className="h-7 max-w-[42vw] truncate rounded-md border bg-transparent px-1.5 text-[11px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring sm:max-w-56"
+                >
+                  {answerProfiles.filter((profile) => profile.enabled).flatMap((profile) =>
+                    profile.models.map((item) => (
+                      <option key={`${profile.id}:${item.id}`} value={`${profile.id}:${item.id}`}>
+                        {profile.display_name} / {item.display_name || item.id}
+                      </option>
+                    )),
+                  )}
+                </select>
+              )}
+              {answerProfiles.length === 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="min-w-0 max-w-[42vw] truncate px-1 text-xs text-muted-foreground sm:max-w-56">
+                      {capabilities?.llm_model ?? t("unconfiguredModel")}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-72">
+                    {t("currentModel", {
+                      model: capabilities?.llm_model ?? t("unconfiguredModel"),
+                    })}
+                  </TooltipContent>
+                </Tooltip>
+              )}
 
               <Tooltip>
                 <TooltipTrigger asChild>

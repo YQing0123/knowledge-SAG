@@ -46,6 +46,25 @@ async def test_dsh_proxy_requires_sag_auth():
 
 
 @pytest.mark.asyncio
+async def test_dsh_routes_are_unavailable_when_integration_is_disabled(monkeypatch):
+    from sag_api.core.config import settings
+    from sag_api.main import app
+
+    monkeypatch.setattr(settings, "dsh_enabled", False)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+            registered = await client.post(
+                "/api/v1/auth/register",
+                json={"email": "dsh-disabled@t.com", "password": "password123"},
+            )
+            headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+            response = await client.get("/api/v1/dsh/sessions", headers=headers)
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "configuration_error"
+
+
+@pytest.mark.asyncio
 async def test_dsh_session_delete_removes_its_messages():
     from sag_api.main import app
 

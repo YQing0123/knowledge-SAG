@@ -101,6 +101,8 @@ _COLUMN_UPGRADES: dict[str, dict[str, str]] = {
         "image_enrichment_error": "TEXT",
         "image_count": "INTEGER NOT NULL DEFAULT 0",
     },
+    # Project management tables predate the requirement-to-task relation.
+    "pm_tasks": {"requirement_id": "VARCHAR(36)"},
 }
 
 # Existing tables also need newly introduced hot-path indexes. Keep these
@@ -110,6 +112,7 @@ _INDEX_UPGRADES = (
     "CREATE INDEX IF NOT EXISTS ix_messages_thread_created_id ON messages (thread_id, created_at, id)",
     "CREATE INDEX IF NOT EXISTS ix_documents_source_sag_source ON documents (source_id, sag_source_id)",
     "CREATE INDEX IF NOT EXISTS ix_documents_source_active_created ON documents (source_id, is_active, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_pm_tasks_requirement_id ON pm_tasks (requirement_id)",
 )
 
 

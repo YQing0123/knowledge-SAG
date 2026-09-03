@@ -1,3 +1,5 @@
+@import "./obsidian-dashboard.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -109,6 +111,490 @@
 
 ::selection {
   background: hsl(var(--foreground) / 0.12);
+}
+
+/* Keep selected text visible inside the high-contrast user message bubble. */
+.conversation-user-message::selection {
+  background: rgb(255 255 255 / 0.38);
+  color: rgb(255 255 255);
+}
+
+.dark .conversation-user-message::selection {
+  background: rgb(0 0 0 / 0.28);
+  color: rgb(17 17 17);
+}
+
+/* Host bridge for the upstream Obsidian Dashboard stylesheet.  The source
+   expects Obsidian's body.theme-light/theme-dark contract; SAG uses html.dark.
+   The workbench component owns these body classes only while it is mounted. */
+.dashboard-plugin .sag-gantt-grid {
+  --sag-gantt-unit: 42px;
+  display: grid;
+  grid-template-columns: repeat(28, var(--sag-gantt-unit));
+  min-width: calc(28 * var(--sag-gantt-unit));
+}
+.dashboard-plugin .sag-gantt-row {
+  display: grid;
+  grid-template-columns: repeat(28, var(--sag-gantt-unit));
+  min-width: calc(28 * var(--sag-gantt-unit));
+  min-height: 42px;
+  border-bottom: 1px solid var(--ad-line);
+  background-image: linear-gradient(90deg, var(--ad-line) 1px, transparent 1px);
+  background-size: var(--sag-gantt-unit) 100%;
+}
+.dashboard-plugin .sag-gantt-bar {
+  align-self: center;
+  height: 20px;
+  margin: 0 3px;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: .9;
+}
+.dashboard-plugin .sag-gantt-bar.is-done { opacity: .42; }
+.dashboard-plugin .po-cal__task { cursor: pointer; }
+.dashboard-plugin .po-cal__day.is-outside { opacity: .35; }
+
+/* SAG workbench adaptations around the unchanged Obsidian Dashboard source. */
+.dashboard-plugin .sag-workbench-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 58px;
+  padding: 8px 14px;
+  overflow: visible;
+}
+.dashboard-plugin .sag-workbench-nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 104px;
+  justify-content: center;
+}
+.dashboard-plugin .sag-overview-board {
+  grid-template-rows: repeat(2, var(--ad-row-h));
+}
+.dashboard-plugin .ad-card__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.dashboard-plugin .sag-progress-card,
+.dashboard-plugin .sag-project-card {
+  min-height: var(--ad-row-h);
+}
+.dashboard-plugin .sag-progress-pair {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-evenly;
+  gap: 20px;
+  padding: 4px 10px 0;
+}
+.dashboard-plugin .sag-progress-ring-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.dashboard-plugin .sag-progress-pair .ad-dp__stat {
+  white-space: nowrap;
+  font-size: 11px;
+}
+.dashboard-plugin .ad-proj__row {
+  grid-template-columns: auto minmax(118px, 0.75fr) minmax(230px, 1.25fr);
+  cursor: default;
+}
+.dashboard-plugin .ad-proj__info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dashboard-plugin .ad-proj__meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--ad-text-mute);
+}
+.dashboard-plugin .ad-proj__stage {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.dashboard-plugin .ad-proj__stage:focus-visible,
+.dashboard-plugin .sag-workbench-nav button:focus-visible,
+.dashboard-plugin .sag-gantt-title:focus-visible,
+.dashboard-plugin .sag-row-action:focus-visible {
+  outline: 2px solid var(--ad-accent);
+  outline-offset: 2px;
+}
+.dashboard-plugin .sag-long-term {
+  justify-self: end;
+  color: var(--ad-accent);
+}
+.dashboard-plugin .sag-overdue-list {
+  gap: 6px;
+  overflow-y: auto;
+}
+.dashboard-plugin .ad-wo__list-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid rgba(224, 127, 135, 0.3);
+  border-left: 3px solid var(--ad-danger);
+  border-radius: var(--ad-r1);
+  background: rgba(224, 127, 135, 0.08);
+  color: var(--ad-text);
+  text-align: left;
+}
+.dashboard-plugin .ad-wo__list-item:hover { background: rgba(224, 127, 135, 0.14); }
+.dashboard-plugin .sag-overdue-tag {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--ad-danger);
+  background: rgba(224, 127, 135, 0.16);
+  font-family: var(--font-monospace, monospace);
+  font-size: 10px;
+  font-weight: 600;
+}
+.dashboard-plugin .sag-toolbar-spacer { flex: 1; }
+.dashboard-plugin .sag-archive-btn,
+.dashboard-plugin .op-new-btn { margin: 0 0 0 6px; }
+.dashboard-plugin .sag-sidebar-create { order: -1; }
+.dashboard-plugin .po-container { height: calc(100vh - 275px); min-height: 700px; }
+.dashboard-plugin .po-content { overflow: auto; }
+.dashboard-plugin .sag-gantt { min-height: 510px; overflow: visible; }
+.dashboard-plugin .sag-gantt .po-gantt__wrap { flex: 0 0 auto; min-height: 330px; max-height: 480px; }
+.dashboard-plugin .sag-gantt-left .po-gantt__left-body { overflow-y: auto; }
+.dashboard-plugin .sag-gantt-title {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--ad-text);
+  text-align: left;
+}
+.dashboard-plugin .po-gantt__label-add {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  height: 24px;
+  margin-left: auto;
+}
+.dashboard-plugin .sag-gantt-grid,
+.dashboard-plugin .sag-gantt-body {
+  display: grid;
+  grid-template-columns: repeat(var(--sag-gantt-columns), var(--sag-gantt-unit));
+  min-width: calc(var(--sag-gantt-columns) * var(--sag-gantt-unit));
+}
+.dashboard-plugin .sag-gantt-header {
+  height: 58px;
+  border-bottom: 1px solid var(--ad-line);
+  background: var(--ad-s1);
+}
+.dashboard-plugin .sag-gantt-header > span {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  border-left: 1px solid var(--ad-line);
+  font-family: var(--font-monospace, monospace);
+  font-size: 10px;
+  color: var(--ad-text-dim);
+}
+.dashboard-plugin .sag-gantt-body { position: relative; }
+.dashboard-plugin .sag-gantt-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(var(--sag-gantt-columns), var(--sag-gantt-unit));
+  min-height: 44px;
+  border-bottom: 1px solid var(--ad-line);
+  background-image: linear-gradient(90deg, var(--ad-line) 1px, transparent 1px);
+  background-size: var(--sag-gantt-unit) 100%;
+}
+.dashboard-plugin .sag-gantt-bar {
+  align-self: center;
+  min-width: 4px;
+  height: 18px;
+  margin: 0 3px;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: .9;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
+}
+.dashboard-plugin .sag-gantt-bar:hover { filter: brightness(1.12); }
+.dashboard-plugin .sag-gantt-bar.is-done { opacity: .46; }
+.dashboard-plugin .sag-gantt-bar.is-child { height: 14px; }
+.dashboard-plugin .sag-gantt-today {
+  grid-row: 1 / -1;
+  z-index: 2;
+  width: 1px;
+  justify-self: center;
+  pointer-events: none;
+  background: var(--ad-accent);
+  box-shadow: 0 0 0 1px var(--ad-accent-dim);
+}
+.dashboard-plugin .sag-gantt-task-list { border-top: 1px solid var(--ad-line); }
+.dashboard-plugin .sag-gantt-task-list-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 12px;
+  color: var(--ad-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.dashboard-plugin .sag-compact-tasklist { max-height: 290px; overflow: auto; }
+.dashboard-plugin .sag-task-name-cell {
+  display: flex;
+  align-items: center;
+  min-width: 260px;
+  gap: 8px;
+}
+.dashboard-plugin .po-check { flex: 0 0 auto; }
+.dashboard-plugin .sag-task-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+.dashboard-plugin .sag-row-action {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--ad-line);
+  border-radius: var(--ad-r1);
+  color: var(--ad-text-dim);
+  background: transparent;
+}
+.dashboard-plugin .sag-row-action:hover { color: var(--ad-accent); border-color: var(--ad-accent); }
+.dashboard-plugin .sag-kanban { min-height: 630px; align-items: stretch; }
+.dashboard-plugin .sag-kanban .po-kanban__col { min-height: 580px; }
+.dashboard-plugin .po-kanban__card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  text-align: left;
+  color: var(--ad-text);
+}
+.dashboard-plugin .po-kanban__card > span:not(.sag-project-tag) { color: var(--ad-text-dim); font-family: var(--font-monospace, monospace); font-size: 10px; }
+.dashboard-plugin .sag-project-tag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border: 1px solid var(--ad-line);
+  border-radius: 999px;
+  color: var(--ad-text-mute);
+  font-size: 10px;
+}
+.dashboard-plugin .sag-project-tag i { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+.dashboard-plugin .po-kanban__empty { min-height: 100px; border: 1px dashed var(--ad-line); border-radius: var(--ad-r2); padding: 12px; color: var(--ad-text-dim); font-size: 11px; }
+.dashboard-plugin .sag-parent-notice { border-left: 3px solid var(--ad-accent); padding: 7px 9px; color: hsl(var(--muted-foreground)); background: hsl(var(--muted) / .5); font-size: 12px; }
+
+/* Workbench refresh: calmer surfaces, explicit hierarchy and a real project
+   stepper. These rules intentionally sit after the legacy dashboard sheet so
+   the project workspace has one coherent visual language. */
+.dashboard-plugin {
+  background-color: var(--ad-bg);
+  background-image: none;
+  padding: 18px 24px 48px;
+}
+.dashboard-plugin .ad-banner.ad-banner--stats {
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .08);
+}
+.dashboard-plugin .sag-workbench-nav {
+  min-height: 52px;
+  margin-top: 12px;
+  padding: 4px;
+  gap: 4px;
+  border: 1px solid var(--ad-line);
+  border-radius: 10px;
+  background: var(--ad-s1);
+}
+.dashboard-plugin .sag-workbench-nav button {
+  min-width: 112px;
+  min-height: 40px;
+  border-radius: 7px;
+  color: var(--ad-text-mute);
+  font-size: 13px;
+  font-weight: 500;
+}
+.dashboard-plugin .sag-workbench-nav button.is-active {
+  color: var(--ad-text);
+  background: var(--ad-s2);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+}
+.dashboard-plugin .sag-overview-board {
+  margin-top: 14px;
+  gap: 14px;
+}
+.dashboard-plugin .sag-overview-board .ad-card {
+  border-radius: 10px;
+  border-color: var(--ad-line);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, .04);
+}
+.dashboard-plugin .sag-overview-board .ad-card__head {
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--ad-line);
+}
+.dashboard-plugin .sag-overview-board .ad-card__title {
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.dashboard-plugin .ad-todo {
+  gap: 5px;
+  padding-top: 2px;
+}
+.dashboard-plugin .ad-todo__item {
+  width: 100%;
+  min-height: 36px;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+}
+.dashboard-plugin .ad-todo__item:hover {
+  border-color: var(--ad-line);
+  background: var(--ad-s2);
+}
+.dashboard-plugin .ad-todo__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.dashboard-plugin .ad-todo__tag { margin-left: auto; flex-shrink: 0; }
+
+/* Project overview rows use a horizontal numbered stepper instead of a loose
+   dot/line decoration. The stage count stays readable at every width. */
+.dashboard-plugin .ad-proj__list { gap: 8px; }
+.dashboard-plugin .ad-proj__row {
+  grid-template-columns: 8px minmax(150px, .72fr) minmax(260px, 1.28fr);
+  gap: 12px;
+  padding: 12px 10px;
+  border: 1px solid var(--ad-line);
+  border-radius: 8px;
+  background: var(--ad-s2);
+}
+.dashboard-plugin .ad-proj__row:hover { background: var(--ad-h1); border-color: var(--ad-line-s); }
+.dashboard-plugin .ad-proj__dot { width: 8px; height: 8px; box-shadow: none; }
+.dashboard-plugin .ad-proj__name { font-size: 13px; font-weight: 650; }
+.dashboard-plugin .ad-proj__track { padding: 0; min-width: 0; }
+.dashboard-plugin .ad-proj__track-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  color: var(--ad-text-dim);
+  font-size: 10px;
+  letter-spacing: .04em;
+}
+.dashboard-plugin .ad-proj__stages { gap: 0; overflow: visible; padding: 0; }
+.dashboard-plugin .ad-proj__stage {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 0;
+  gap: 5px;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0;
+  color: var(--ad-text-dim);
+}
+.dashboard-plugin .ad-proj__step-number {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--ad-line-s);
+  border-radius: 50%;
+  background: var(--ad-s1);
+  color: var(--ad-text-dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  position: relative;
+  z-index: 1;
+}
+.dashboard-plugin .ad-proj__stage:not(:last-child)::after {
+  top: 10px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: var(--ad-line-s);
+}
+.dashboard-plugin .ad-proj__stage.is-done .ad-proj__step-number,
+.dashboard-plugin .ad-proj__stage.is-current .ad-proj__step-number {
+  color: var(--ad-on-accent);
+  background: var(--ad-accent);
+  border-color: var(--ad-accent);
+}
+.dashboard-plugin .ad-proj__stage.is-current .ad-proj__step-number { box-shadow: 0 0 0 4px var(--ad-accent-dim); }
+.dashboard-plugin .ad-proj__stage.is-done:not(:last-child)::after { background: var(--ad-accent); }
+.dashboard-plugin .ad-proj__stage.is-current { color: var(--ad-text); font-weight: 650; }
+.dashboard-plugin .ad-proj__stage.is-done { color: var(--ad-text-mute); }
+
+/* Keep the task list anchored below the timeline and make closed rows settle
+   at the bottom instead of looking like newly inserted work. */
+.dashboard-plugin .sag-gantt-task-list { flex: 0 0 auto; }
+.dashboard-plugin .sag-compact-tasklist { max-height: 290px; }
+.dashboard-plugin .po-table tbody tr.is-completed,
+.dashboard-plugin .po-table tbody tr.is-cancelled { opacity: .62; }
+.dashboard-plugin .po-table tbody tr.is-completed .po-name-cell { text-decoration: line-through; }
+.dashboard-plugin .po-table th:last-child,
+.dashboard-plugin .po-table td:last-child { width: 42px; text-align: right; }
+.dashboard-plugin .po-delete { margin-left: auto; }
+
+@media (max-width: 1120px) {
+  .dashboard-plugin .sag-overview-board { --ad-row-h: 230px !important; }
+  .dashboard-plugin .sag-progress-pair { gap: 8px; }
+  .dashboard-plugin .ad-proj__row { grid-template-columns: 8px minmax(120px, 1fr); }
+  .dashboard-plugin .ad-proj__track { grid-column: 2; }
+}
+
+@media (max-width: 760px) {
+  .dashboard-plugin .sag-workbench-nav { min-height: 52px; padding: 6px; }
+  .dashboard-plugin .sag-workbench-nav button { min-width: 0; flex: 1; }
+  .dashboard-plugin .sag-overview-board { display: flex; flex-direction: column; }
+  .dashboard-plugin .sag-overview-board .ad-card { min-height: 220px; }
+  .dashboard-plugin .po-container { height: auto; min-height: 0; }
+  .dashboard-plugin .po-tabs { flex-wrap: wrap; }
+  .dashboard-plugin .sag-toolbar-spacer { display: none; }
+  .dashboard-plugin .sag-archive-btn,
+  .dashboard-plugin .op-new-btn { margin-left: 0; }
+  .dashboard-plugin .sag-progress-pair { flex-direction: column; }
+  .dashboard-plugin { padding: 12px 12px 28px; }
+  .dashboard-plugin .ad-proj__row { grid-template-columns: 8px minmax(0, 1fr); }
+  .dashboard-plugin .ad-proj__info { min-width: 0; }
+  .dashboard-plugin .ad-proj__track { grid-column: 2; }
+  .dashboard-plugin .ad-proj__stage { font-size: 10px; }
+}
+
+@media (max-width: 960px) {
+  .dashboard-plugin { padding: 14px 12px 32px; }
+  .dashboard-plugin .ad-banner-stats { padding-right: 16px; }
+  .dashboard-plugin .ad-banner-stat-col--right,
+  .dashboard-plugin .ad-banner-meta { display: none; }
+  .dashboard-plugin .po-container { height: auto; min-height: 680px; flex-direction: column; }
+  .dashboard-plugin .po-sidebar { width: 100%; max-height: 210px; border-right: 0; border-bottom: 1px solid var(--ad-line); }
 }
 
 /* 细腻滚动条 */

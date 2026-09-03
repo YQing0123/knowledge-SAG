@@ -11,6 +11,7 @@ import type {
   BindingTargetType,
   Capabilities,
   Doc,
+  DshIntegrationConfig,
   FolderSyncConfig,
   FolderSyncConfigPatch,
   FolderSyncDirectoryList,
@@ -18,8 +19,10 @@ import type {
   ModelConfig,
   ModelConfigPatch,
   ModelProviderSpec,
+  AnswerModelProfile,
   ModelSetupStatus,
   KnowledgeMcpDescriptor,
+  McpApiKey,
   Persona,
   SearchResponse,
   Section,
@@ -46,6 +49,9 @@ import type {
   ProjectTask,
   ProjectStage,
   TaskDailyNode,
+  Requirement,
+  WorkReport,
+  Analytics,
   ReprocessFailedDocumentsResult,
   ReprocessCurrentModelDocumentsResult,
 } from "./types";
@@ -792,6 +798,7 @@ export const api = {
     }),
   me: () => request<User>("/api/v1/auth/me"),
   projectSnapshot: () => request<ProjectSnapshot>("/api/v1/project-management/snapshot"),
+  createQuickCapture: (content: string) => request<{ filename: string; created_at: string }>("/api/v1/project-management/quick-captures", { method: "POST", body: JSON.stringify({ content }) }),
   listProjects: () => request<Project[]>("/api/v1/project-management/projects"),
   createProject: (body: Record<string, unknown>) => request<Project>("/api/v1/project-management/projects", { method: "POST", body: JSON.stringify(body) }),
   updateProject: (id: string, body: Record<string, unknown>) => request<Project>(`/api/v1/project-management/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
@@ -800,8 +807,17 @@ export const api = {
   createTask: (body: Record<string, unknown>) => request<ProjectTask>("/api/v1/project-management/tasks", { method: "POST", body: JSON.stringify(body) }),
   updateTask: (id: string, body: Record<string, unknown>) => request<ProjectTask>(`/api/v1/project-management/tasks/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteTask: (id: string) => request<{ ok: boolean }>(`/api/v1/project-management/tasks/${id}`, { method: "DELETE" }),
-  reorderTasks: (task_ids: string[]) => request<ProjectTask[]>("/api/v1/project-management/tasks/reorder", { method: "POST", body: JSON.stringify({ task_ids }) }),
+  reorderTasks: (project_id: string, task_ids: string[]) => request<ProjectTask[]>("/api/v1/project-management/tasks/reorder", { method: "POST", body: JSON.stringify({ project_id, task_ids }) }),
   upsertTaskDailyNode: (taskId: string, nodeDate: string, body: { state: "todo" | "done" | "skip"; note?: string }) => request<TaskDailyNode>(`/api/v1/project-management/tasks/${taskId}/daily-node/${nodeDate}`, { method: "PUT", body: JSON.stringify(body) }),
+  listRequirements: () => request<Requirement[]>("/api/v1/project-management/requirements"),
+  createRequirement: (body: Record<string, unknown>) => request<Requirement>("/api/v1/project-management/requirements", { method: "POST", body: JSON.stringify(body) }),
+  updateRequirement: (id: string, body: Record<string, unknown>) => request<Requirement>(`/api/v1/project-management/requirements/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  convertRequirement: (id: string, project_id: string, titles: string[]) => request<ProjectTask[]>(`/api/v1/project-management/requirements/${id}/convert?project_id=${encodeURIComponent(project_id)}`, { method: "POST", body: JSON.stringify(titles) }),
+  listReports: () => request<WorkReport[]>("/api/v1/project-management/reports"),
+  generateReport: (body: { report_type: "daily" | "weekly"; report_date: string }) => request<WorkReport>("/api/v1/project-management/reports/generate", { method: "POST", body: JSON.stringify(body) }),
+  updateReport: (id: string, body: Record<string, unknown>) => request<WorkReport>(`/api/v1/project-management/reports/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  confirmReport: (id: string) => request<WorkReport>(`/api/v1/project-management/reports/${id}/confirm`, { method: "POST" }),
+  analytics: (start_date?: string, end_date?: string) => request<Analytics>(`/api/v1/project-management/analytics${start_date ? `?start_date=${start_date}&end_date=${end_date}` : ""}`),
   storageBootstrap: () =>
     request<StorageBootstrapStatus>("/api/v1/system/storage-bootstrap", {
       redirectOnUnauthorized: false,
@@ -820,11 +836,36 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(preferences),
     }),
+  getDshIntegration: () => request<DshIntegrationConfig>("/api/v1/system/dsh-integration"),
+  saveDshIntegration: (config: Partial<Pick<DshIntegrationConfig, "enabled" | "gateway_base" | "gateway_timeout_seconds">> & { gateway_token?: string }) =>
+    request<{ config: DshIntegrationConfig; capabilities: Capabilities }>("/api/v1/system/dsh-integration", {
+      method: "PUT",
+      body: JSON.stringify(config),
+    }),
 
   // 模型与检索配置
   getModelConfig: () => request<ModelConfig>("/api/v1/system/model-config"),
   getModelProviders: () =>
     request<ModelProviderSpec[]>("/api/v1/system/model-providers"),
+  getAnswerModelProfiles: () =>
+    request<AnswerModelProfile[]>("/api/v1/system/answer-models"),
+  createAnswerModelProfile: (body: {
+    provider_id: string;
+    display_name: string;
+    base_url: string;
+    protocol: "openai-compatible" | "openai-responses";
+    api_key: string;
+    models: Array<{ id: string; display_name?: string; context_window: number; max_output_tokens: number }>;
+    is_default?: boolean;
+  }) => request<AnswerModelProfile>("/api/v1/system/answer-models", { method: "POST", body: JSON.stringify(body) }),
+  updateAnswerModelProfile: (id: string, body: Record<string, unknown>) =>
+    request<AnswerModelProfile>(`/api/v1/system/answer-models/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteAnswerModelProfile: (id: string) =>
+    request<{ ok: boolean }>(`/api/v1/system/answer-models/${id}`, { method: "DELETE" }),
+  discoverAnswerModelProfile: (id: string) =>
+    request<{ models: AnswerModelProfile["models"]; count: number }>(`/api/v1/system/answer-models/${id}/discover`, { method: "POST" }),
+  discoverAnswerModels: (body: { base_url: string; api_key: string; protocol?: "openai-compatible" | "openai-responses" }) =>
+    request<{ models: AnswerModelProfile["models"]; count: number; base_url: string }>("/api/v1/system/answer-models/discover", { method: "POST", body: JSON.stringify(body) }),
   modelSetupStatus: () =>
     request<ModelSetupStatus>("/api/v1/system/model-setup"),
   quickSetup302: (apiKey: string) =>
@@ -1289,6 +1330,14 @@ export const api = {
 
   // 整个 SAG 知识库的 MCP 挂载信息
   knowledgeMcp: () => request<KnowledgeMcpDescriptor>("/api/v1/system/mcp"),
+  listMcpApiKeys: () => request<McpApiKey[]>("/api/v1/system/mcp/api-keys"),
+  createMcpApiKey: (name: string) =>
+    request<McpApiKey & { key: string }>("/api/v1/system/mcp/api-keys", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  revokeMcpApiKey: (id: string) =>
+    request<McpApiKey>(`/api/v1/system/mcp/api-keys/${id}/revoke`, { method: "POST" }),
 
   // OCTX 数据包导入/导出
   startOctxExport,

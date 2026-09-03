@@ -52,7 +52,6 @@ from sag_api.services.source_service import search_source_candidates
 from sag_api.tools.base import ToolContext
 from sag_api.tools.builtin import SearchContextTool
 
-router = APIRouter(prefix="/dsh", tags=["dsh"])
 _DELEGATION_AUDIENCE = "sag-dsh-retrieval-v1"
 _IMAGE_TYPES = {
     ".png": "image/png",
@@ -61,6 +60,14 @@ _IMAGE_TYPES = {
     ".webp": "image/webp",
     ".gif": "image/gif",
 }
+
+
+def _require_dsh_enabled() -> None:
+    if not settings.dsh_enabled:
+        raise ConfigurationError("DSH 会话集成已关闭，请在设置的集成页启用后再使用")
+
+
+router = APIRouter(prefix="/dsh", tags=["dsh"], dependencies=[Depends(_require_dsh_enabled)])
 
 
 def _safe_filename(value: str, fallback: str) -> str:

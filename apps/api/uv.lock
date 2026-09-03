@@ -3293,7 +3293,7 @@ wheels = [
 
 [[package]]
 name = "sag-api"
-version = "1.9.0"
+version = "1.9.6"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

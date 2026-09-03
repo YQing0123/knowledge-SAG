@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator
@@ -36,6 +37,24 @@ class SystemPreferencesUpdate(BaseModel):
             ZoneInfo(normalized)
         except (ZoneInfoNotFoundError, ValueError) as error:
             raise ValueError("必须使用有效的 IANA 时区，例如 Asia/Shanghai") from error
+        return normalized
+
+
+class DshIntegrationUpdate(BaseModel):
+    enabled: bool | None = None
+    gateway_base: str | None = Field(default=None, min_length=1, max_length=600)
+    gateway_token: str | None = Field(default=None, min_length=1, max_length=1000)
+    gateway_timeout_seconds: float | None = Field(default=None, ge=1, le=600)
+
+    @field_validator("gateway_base")
+    @classmethod
+    def validate_gateway_base(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().rstrip("/")
+        parsed = urlparse(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("DSH 网关地址必须是 http 或 https URL")
         return normalized
 
 
@@ -123,3 +142,43 @@ class ModelConfigUpdate(BaseModel):
         if value is None:
             raise ValueError("模型接入方式不能为 null")
         return value
+
+
+class AnswerModelItem(BaseModel):
+    id: str = Field(min_length=1, max_length=300)
+    display_name: str | None = Field(default=None, max_length=200)
+    context_window: int = Field(default=128_000, ge=1024, le=2_000_000)
+    max_output_tokens: int = Field(default=8_192, ge=1, le=1_000_000)
+
+
+class AnswerModelProfileCreate(BaseModel):
+    provider_id: str = Field(min_length=1, max_length=120)
+    display_name: str = Field(min_length=1, max_length=200)
+    base_url: str = Field(min_length=1, max_length=500)
+    protocol: Literal["openai-compatible", "openai-responses"] = "openai-compatible"
+    api_key: str = Field(min_length=1, max_length=500)
+    models: list[AnswerModelItem] = Field(default_factory=list, max_length=100)
+    is_default: bool = False
+
+
+class AnswerModelProfileUpdate(BaseModel):
+    provider_id: str | None = Field(default=None, min_length=1, max_length=120)
+    display_name: str | None = Field(default=None, min_length=1, max_length=200)
+    base_url: str | None = Field(default=None, min_length=1, max_length=500)
+    protocol: Literal["openai-compatible", "openai-responses"] | None = None
+    api_key: str | None = Field(default=None, max_length=500)
+    models: list[AnswerModelItem] | None = Field(default=None, max_length=100)
+    is_default: bool | None = None
+    enabled: bool | None = None
+
+
+class AnswerModelDiscoverRequest(BaseModel):
+    """临时探测提供方目录，不会写入数据库。"""
+
+    base_url: str = Field(min_length=1, max_length=500)
+    api_key: str = Field(min_length=1, max_length=500)
+    protocol: Literal["openai-compatible", "openai-responses"] = "openai-compatible"
+
+
+class McpApiKeyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)

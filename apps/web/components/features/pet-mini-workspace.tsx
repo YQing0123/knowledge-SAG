@@ -388,6 +388,7 @@ export function PetMiniWorkspace({
     enterExploreMode,
     threads,
     timezone,
+    capabilities,
   } = useApp();
   const searchWorkspace = useSearchWorkspace();
   const routeThreadId = pathname.match(/^\/chat\/([^/]+)/)?.[1] ?? null;
@@ -1034,7 +1035,7 @@ export function PetMiniWorkspace({
         ) : (
           <>
             <div className="grid min-w-0 flex-1 grid-cols-3 rounded-md bg-muted p-0.5">
-              {WORKSPACE_SECTIONS.map((item) => {
+              {WORKSPACE_SECTIONS.filter((item) => item.id !== "dsh" || capabilities?.dsh_enabled).map((item) => {
                 return (
                   <button
                     key={item.id}

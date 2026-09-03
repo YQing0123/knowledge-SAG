@@ -8,12 +8,11 @@ import {
 } from "./workspace";
 
 describe("workspace sections", () => {
-  it("keeps normal and compact navigation on one ordered definition", () => {
+  it("keeps normal and compact navigation on one ordered definition without the hidden workbench entry", () => {
     expect(WORKSPACE_SECTIONS.map((item) => item.id)).toEqual([
       "search",
       "answer",
       "knowledge",
-      "projects",
       "dsh",
     ]);
   });

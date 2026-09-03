@@ -20,7 +20,11 @@ from sag_api.core.errors import (
     ValidationError,
 )
 from sag_api.enums import DocumentStatus
-from sag_api.generation.llm import _classify_llm_error
+from sag_api.generation.llm import (
+    ResponsesApiError,
+    _classify_llm_error,
+    _responses_retry_delay,
+)
 from sag_api.jobs.tasks import _classify_document_failure
 from sag_api.sag.errors import map_sag_errors
 
@@ -82,6 +86,23 @@ def test_classify_llm_generic_falls_back_to_upstream():
     assert isinstance(err, UpstreamError)
     assert err.layer == ErrorLayer.LLM
     assert err.stage == ErrorStage.GENERATE
+
+
+def test_responses_service_unavailable_is_retryable_with_bounded_backoff():
+    error = ResponsesApiError(503, '{"error":{"message":"temporarily unavailable"}}')
+
+    classified = _classify_llm_error(error, stage=ErrorStage.GENERATE)
+
+    assert isinstance(classified, ServiceUnavailableError)
+    assert classified.retryable is True
+    assert _responses_retry_delay(error, 0) == 0.5
+    assert _responses_retry_delay(error, 1) == 1.0
+
+
+def test_responses_daily_limit_is_not_retried():
+    error = ResponsesApiError(429, '{"code":"USAGE_LIMIT_EXCEEDED","message":"daily usage limit exceeded"}')
+
+    assert _responses_retry_delay(error, 0) is None
 
 
 def test_document_failure_trusts_apierror_dimensions():

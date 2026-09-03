@@ -17,6 +17,7 @@ const EMPTY_CONVERSATION_INDEX: ConversationIndexSnapshot = {
   activeRunSessionId: null,
   sessions: [],
 };
+const CONVERSATION_MODEL_KEY_PREFIX = "sag:conversation-model:";
 
 export interface ConversationComposerScope {
   id: string;
@@ -33,6 +34,9 @@ export interface ConversationComposerSnapshot {
   scoped: ConversationComposerScope[];
   images: ConversationComposerImage[];
   webEnabled: boolean;
+  mode: "normal" | "deep";
+  modelProfileId: string;
+  modelId: string;
 }
 
 const EMPTY_COMPOSER: ConversationComposerSnapshot = {
@@ -40,15 +44,92 @@ const EMPTY_COMPOSER: ConversationComposerSnapshot = {
   scoped: [],
   images: [],
   webEnabled: false,
+  mode: "normal",
+  modelProfileId: "",
+  modelId: "",
 };
 
 class ConversationComposerStore {
   private drafts = new Map<string, ConversationComposerSnapshot>();
   private listeners = new Map<string, Set<() => void>>();
+  private hydratedModelKeys = new Map<string, string>();
 
   constructor(readonly agentId: string) {}
 
-  getSnapshot = (sessionId: string) => this.drafts.get(sessionId) ?? EMPTY_COMPOSER;
+  private modelKey(identity: string) {
+    return `${CONVERSATION_MODEL_KEY_PREFIX}${this.agentId}:${encodeURIComponent(identity)}`;
+  }
+
+  private readModelSelection(identity: string) {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem(this.modelKey(identity));
+      if (!raw) return null;
+      const value = JSON.parse(raw) as { profileId?: unknown; modelId?: unknown };
+      const profileId = typeof value.profileId === "string" ? value.profileId : "";
+      const modelId = typeof value.modelId === "string" ? value.modelId : "";
+      return profileId || modelId ? { profileId, modelId } : null;
+    } catch {
+      // Ignore malformed or unavailable browser storage and use defaults.
+      return null;
+    }
+  }
+
+  private hydrateModelSelection(sessionId: string, persistenceId?: string | null) {
+    if (typeof window === "undefined") return;
+    const stableIdentity = persistenceId || null;
+    const hydrationKey = stableIdentity ?? sessionId;
+    if (this.hydratedModelKeys.get(sessionId) === hydrationKey) return;
+
+    const stablePersisted = stableIdentity ? this.readModelSelection(stableIdentity) : null;
+    const sessionPersisted = this.readModelSelection(sessionId);
+    const persisted = stablePersisted ?? sessionPersisted;
+    const current = this.drafts.get(sessionId);
+    if (persisted) {
+      this.drafts.set(sessionId, {
+        ...(current ?? EMPTY_COMPOSER),
+        modelProfileId: persisted.profileId,
+        modelId: persisted.modelId,
+      });
+      // A draft becomes a persisted thread after its first request. Migrate
+      // the selection immediately so a later refresh can restore it by thread.
+      if (stableIdentity && !stablePersisted && sessionPersisted) {
+        try {
+          window.localStorage.setItem(
+            this.modelKey(stableIdentity),
+            JSON.stringify(sessionPersisted),
+          );
+        } catch {
+          // Ignore unavailable browser storage.
+        }
+      }
+    } else if (stableIdentity && current?.modelProfileId && current.modelId) {
+      this.persistModelSelection(sessionId, current, stableIdentity);
+    }
+    this.hydratedModelKeys.set(sessionId, hydrationKey);
+  }
+
+  private persistModelSelection(
+    sessionId: string,
+    draft: ConversationComposerSnapshot,
+    persistenceId?: string | null,
+  ) {
+    if (typeof window === "undefined") return;
+    try {
+      const serialized = JSON.stringify({ profileId: draft.modelProfileId, modelId: draft.modelId });
+      window.localStorage.setItem(this.modelKey(sessionId), serialized);
+      if (persistenceId && persistenceId !== sessionId) {
+        window.localStorage.setItem(this.modelKey(persistenceId), serialized);
+      }
+    } catch {
+      // Storage may be disabled by the browser; the in-memory selection still works.
+    }
+  }
+
+  getSnapshot = (sessionId: string, persistenceId?: string | null) => {
+    this.hydrateModelSelection(sessionId, persistenceId);
+    return this.drafts.get(sessionId) ?? EMPTY_COMPOSER;
+  };
 
   subscribe = (sessionId: string, listener: () => void) => {
     const listeners = this.listeners.get(sessionId) ?? new Set<() => void>();
@@ -63,11 +144,13 @@ class ConversationComposerStore {
   update(
     sessionId: string,
     updater: (current: ConversationComposerSnapshot) => ConversationComposerSnapshot,
+    persistenceId?: string | null,
   ) {
-    const current = this.getSnapshot(sessionId);
+    const current = this.getSnapshot(sessionId, persistenceId);
     const next = updater(current);
     if (next === current) return;
     this.drafts.set(sessionId, next);
+    this.persistModelSelection(sessionId, next, persistenceId);
     this.listeners.get(sessionId)?.forEach((listener) => listener());
   }
 
@@ -77,6 +160,7 @@ class ConversationComposerStore {
     });
     this.drafts.clear();
     this.listeners.clear();
+    this.hydratedModelKeys.clear();
   }
 }
 
@@ -229,7 +313,7 @@ export function useOptionalConversationSession(
   return useRuntimeSession(runtime, useRuntimeIndex(runtime), sessionId);
 }
 
-export function useConversationComposer(sessionId: string) {
+export function useConversationComposer(sessionId: string, persistenceId?: string | null) {
   const store = React.useContext(ConversationComposerContext);
   if (!store) throw new Error("useConversationComposer must be used inside ConversationProvider");
 
@@ -237,7 +321,10 @@ export function useConversationComposer(sessionId: string) {
     (listener: () => void) => store.subscribe(sessionId, listener),
     [sessionId, store],
   );
-  const getSnapshot = React.useCallback(() => store.getSnapshot(sessionId), [sessionId, store]);
+  const getSnapshot = React.useCallback(
+    () => store.getSnapshot(sessionId, persistenceId),
+    [persistenceId, sessionId, store],
+  );
   const draft = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   const setInput = React.useCallback<React.Dispatch<React.SetStateAction<string>>>(
@@ -245,9 +332,9 @@ export function useConversationComposer(sessionId: string) {
       store.update(sessionId, (current) => ({
         ...current,
         input: typeof next === "function" ? next(current.input) : next,
-      }));
+      }), persistenceId);
     },
-    [sessionId, store],
+    [persistenceId, sessionId, store],
   );
   const setScoped = React.useCallback<
     React.Dispatch<React.SetStateAction<ConversationComposerScope[]>>
@@ -256,9 +343,9 @@ export function useConversationComposer(sessionId: string) {
       store.update(sessionId, (current) => ({
         ...current,
         scoped: typeof next === "function" ? next(current.scoped) : next,
-      }));
+      }), persistenceId);
     },
-    [sessionId, store],
+    [persistenceId, sessionId, store],
   );
   const setImages = React.useCallback<
     React.Dispatch<React.SetStateAction<ConversationComposerImage[]>>
@@ -267,9 +354,9 @@ export function useConversationComposer(sessionId: string) {
       store.update(sessionId, (current) => ({
         ...current,
         images: typeof next === "function" ? next(current.images) : next,
-      }));
+      }), persistenceId);
     },
-    [sessionId, store],
+    [persistenceId, sessionId, store],
   );
   const setWebEnabled = React.useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
     (next) => {
@@ -277,10 +364,38 @@ export function useConversationComposer(sessionId: string) {
         ...current,
         webEnabled:
           typeof next === "function" ? next(current.webEnabled) : next,
-      }));
+      }), persistenceId);
     },
-    [sessionId, store],
+    [persistenceId, sessionId, store],
+  );
+  const setMode = React.useCallback<React.Dispatch<React.SetStateAction<"normal" | "deep">>>(
+    (next) => {
+      store.update(sessionId, (current) => ({
+        ...current,
+        mode: typeof next === "function" ? next(current.mode) : next,
+      }), persistenceId);
+    },
+    [persistenceId, sessionId, store],
   );
 
-  return { ...draft, setInput, setScoped, setImages, setWebEnabled };
+  const setModelProfileId = React.useCallback<React.Dispatch<React.SetStateAction<string>>>(
+    (next) => {
+      store.update(sessionId, (current) => ({
+        ...current,
+        modelProfileId: typeof next === "function" ? next(current.modelProfileId) : next,
+      }), persistenceId);
+    },
+    [persistenceId, sessionId, store],
+  );
+  const setModelId = React.useCallback<React.Dispatch<React.SetStateAction<string>>>(
+    (next) => {
+      store.update(sessionId, (current) => ({
+        ...current,
+        modelId: typeof next === "function" ? next(current.modelId) : next,
+      }), persistenceId);
+    },
+    [persistenceId, sessionId, store],
+  );
+
+  return { ...draft, setInput, setScoped, setImages, setWebEnabled, setMode, setModelProfileId, setModelId };
 }

@@ -2,26 +2,25 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from sqlalchemy import select
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from sag_agent import AgentRuntime, EventType, RunHandle
+from sag_api.api.v1.dsh import _safe_filename, _write_markdown
 from sag_api.core.db import SessionLocal, get_session
 from sag_api.core.deps import (
     get_agent_runtime,
     get_current_user,
     get_engine_manager,
-    get_llm,
     get_tool_registry,
 )
 from sag_api.core.error_taxonomy import ErrorCode
 from sag_api.core.errors import ConfigurationError, ConflictError, NotFoundError
 from sag_api.core.logging import get_logger
 from sag_api.db.models import Message, User
-from sag_api.generation import LLMClient
 from sag_api.sag import EngineManager
 from sag_api.schemas.agent import (
     AgentCreate,
@@ -39,8 +38,7 @@ from sag_api.schemas.agent import (
 )
 from sag_api.schemas.common import Ok
 from sag_api.services import agent_domain as svc
-from sag_api.services import agent_service
-from sag_api.api.v1.dsh import _safe_filename, _write_markdown
+from sag_api.services import agent_service, answer_model_service
 from sag_api.tools import ToolRegistry
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -415,14 +413,20 @@ async def ask(
     _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
     engine_manager: EngineManager = Depends(get_engine_manager),
-    llm: LLMClient = Depends(get_llm),
     tool_registry: ToolRegistry = Depends(get_tool_registry),
     agent_runtime: AgentRuntime = Depends(get_agent_runtime),
 ) -> EventSourceResponse:
     agent = await svc.get_agent(session, agent_id)
     thread = await svc.get_thread(session, agent.id, thread_id)
-    if not llm.configured:
-        raise ConfigurationError("尚未配置 LLM，无法生成回答")
+    profile, model = await answer_model_service.resolve_profile(
+        session,
+        _user,
+        body.model_profile_id,
+        body.model_id,
+    )
+    answer_llm = answer_model_service.build_llm_client(profile, model)
+    if not answer_llm.configured:
+        raise ConfigurationError("尚未配置回答模型，无法生成回答")
     plan = await svc.prepare_ask(
         session,
         agent=agent,
@@ -430,7 +434,8 @@ async def ask(
         query=body.query,
         attachments=body.attachments,
         source_ids=body.source_ids,
-        llm=llm,
+        llm=answer_llm,
+        context_window=model["context_window"],
     )
     web_enabled = body.effective_web_enabled
 
@@ -443,10 +448,11 @@ async def ask(
                 agent=agent,
                 thread_id=thread.id,
                 engine_manager=engine_manager,
-                llm=llm,
+                llm=answer_llm,
                 tool_registry=tool_registry,
                 runtime=agent_runtime,
                 knowledge_only=not web_enabled,
+                deep_research=body.mode == "deep",
             ):
                 last = event
                 yield _sse(event.type, event.data)

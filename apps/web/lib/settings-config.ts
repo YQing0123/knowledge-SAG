@@ -69,4 +69,4 @@ export const TIMEZONE_OPTIONS = [
 ] as const;
 
 export const ARCHIVED_THREADS_PAGE_SIZE = 5;
-export const SIDEBAR_THREADS_PAGE_SIZE = 5;
+export const SIDEBAR_THREADS_PAGE_SIZE = 10;

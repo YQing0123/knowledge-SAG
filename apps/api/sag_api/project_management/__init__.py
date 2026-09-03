@@ -3,8 +3,10 @@
 from sag_api.project_management.models import (
     Project,
     ProjectStage,
+    Requirement,
     Task,
     TaskDailyNode,
+    WorkReport,
 )
 
-__all__ = ["Project", "ProjectStage", "Task", "TaskDailyNode"]
+__all__ = ["Project", "ProjectStage", "Requirement", "Task", "TaskDailyNode", "WorkReport"]

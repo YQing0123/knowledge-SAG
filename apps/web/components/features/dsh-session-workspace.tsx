@@ -41,6 +41,7 @@ import type { Citation, Source } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
 import { useDetailPanel } from "@/components/features/detail-panel";
+import { useApp } from "@/components/features/app-shell";
 
 type GatewayCitation = {
   kind?: "internal" | "external";
@@ -238,6 +239,7 @@ function DshMessageActions({ message, citations, onSave, onRetry, onCitationClic
 }
 
 export function DshSessionWorkspace() {
+  const { capabilities: sagCapabilities } = useApp();
   const [sources, setSources] = React.useState<Source[]>([]);
   const [capabilities, setCapabilities] = React.useState<DshCapabilities | null>(null);
   const [sessions, setSessions] = React.useState<DshSessionRecord[]>([]);
@@ -271,6 +273,10 @@ export function DshSessionWorkspace() {
   const compositionCommitGuardTimerRef = React.useRef<number | null>(null);
   const restoreComposerFocusRef = React.useRef(false);
   const newHandledRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (sagCapabilities && !sagCapabilities.dsh_enabled) router.replace("/chat");
+  }, [router, sagCapabilities]);
 
   const currentSession = sessions.find((session) => session.id === sessionId) ?? null;
   const lastAssistant = messages.filter((message) => message.role === "assistant").at(-1);

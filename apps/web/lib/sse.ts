@@ -19,6 +19,17 @@ export type AgentEventType =
   | "tool.approval_required"
   | "tool.completed"
   | "tool.failed"
+  | "research.started"
+  | "research.progress"
+  | "research.query_rewritten"
+  | "research.completed"
+  | "research.context_ready"
+  | "research.failed"
+  | "retrieval.started"
+  | "retrieval.completed"
+  | "web_search.started"
+  | "web_search.completed"
+  | "web_search.failed"
   | "universe.activation";
 
 export interface AgentErrorPayload {
@@ -240,6 +251,9 @@ export function streamAgentAsk(
     source_ids?: string[];
     knowledge_only?: boolean;
     web_enabled: boolean;
+    model_profile_id?: string;
+    model_id?: string;
+    mode?: "normal" | "deep";
   },
   onEvent: (event: AgentEvent) => void,
   signal?: AbortSignal,

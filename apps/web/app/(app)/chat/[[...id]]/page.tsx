@@ -84,6 +84,7 @@ export default function ChatPage() {
       <ConversationPanel
         key={sessionId}
         sessionId={sessionId}
+        persistenceId={routeThreadId ?? session.threadId}
         active={appMode === "normal"}
         avatarNode={avatarNode}
         heroNode={heroNode}

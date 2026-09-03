@@ -40,6 +40,9 @@ export interface ConversationTransport {
     sourceIds?: string[];
     knowledgeOnly?: boolean;
     webEnabled: boolean;
+    modelProfileId?: string;
+    modelId?: string;
+    mode?: "normal" | "deep";
     onEvent: (event: AgentEvent) => void;
     signal: AbortSignal;
   }): Promise<AgentRunOutcome>;
@@ -145,6 +148,9 @@ export interface ConversationSendInput {
   sourceIds?: string[];
   knowledgeOnly?: boolean;
   webEnabled?: boolean;
+  modelProfileId?: string;
+  modelId?: string;
+  mode?: "normal" | "deep";
   title?: string;
 }
 
@@ -650,6 +656,9 @@ export class ConversationRuntime {
         sourceIds: input.sourceIds?.length ? [...input.sourceIds] : undefined,
         knowledgeOnly: input.knowledgeOnly,
         webEnabled: input.webEnabled === true,
+        modelProfileId: input.modelProfileId,
+        modelId: input.modelId,
+        mode: input.mode,
         onEvent: (event) => this.handleEvent(operation, event),
         signal: controller.signal,
       });

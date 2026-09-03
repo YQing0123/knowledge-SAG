@@ -406,6 +406,8 @@ async def test_mcp_binding_validation_and_source_descriptor():
             assert "source_id" not in global_body["http"]["url"]
             assert global_body["http"]["url"].endswith("/mcp/")
             assert global_body["stdio"]["env"] == {}
+            assert global_body["http"]["headers"]["Authorization"] == "Bearer <MCP_API_KEY>"
+            assert global_body["http"]["auth"]["format"] == "Bearer sag_mcp_<generated-key>"
             assert set(global_body["tools"]) == set(MCP_TOOL_NAMES)
             assert global_body["tool_details"] == list(MCP_TOOL_DETAILS)
 
@@ -448,3 +450,77 @@ async def test_mcp_binding_validation_and_source_descriptor():
                 json={"target_type": "mcp_server", "config": {"name": "缺少连接"}},
             )
             assert bad.status_code == 422, bad.text
+
+
+@pytest.mark.asyncio
+async def test_mcp_api_key_lifecycle_and_streamable_http_auth():
+    """设置页生成的 API Key 可初始化 MCP，撤销后立即失效。"""
+    from sag_api.main import create_app
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            user_headers = await _register(c, "mcp-key@t.com")
+            created = await c.post(
+                "/api/v1/system/mcp/api-keys",
+                headers=user_headers,
+                json={"name": "第三方智能体"},
+            )
+            assert created.status_code == 200, created.text
+            payload = created.json()
+            assert payload["key"].startswith("sag_mcp_")
+            assert payload["key_prefix"] == payload["key"][:16]
+
+            listed = await c.get("/api/v1/system/mcp/api-keys", headers=user_headers)
+            assert listed.status_code == 200, listed.text
+            assert listed.json()[0]["key_prefix"] == payload["key_prefix"]
+            assert "key" not in listed.json()[0]
+
+            mcp_headers = {
+                "Authorization": f"Bearer {payload['key']}",
+                "Accept": "application/json, text/event-stream",
+            }
+            initialized = await c.post(
+                "/mcp/",
+                headers=mcp_headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "api-key-client", "version": "1.0"},
+                    },
+                },
+            )
+            assert initialized.status_code == 200, initialized.text
+            listed_tools = await c.post(
+                "/mcp/",
+                headers=mcp_headers,
+                json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            )
+            assert listed_tools.status_code == 200, listed_tools.text
+            assert "search" in listed_tools.text
+
+            revoked = await c.post(
+                f"/api/v1/system/mcp/api-keys/{payload['id']}/revoke",
+                headers=user_headers,
+            )
+            assert revoked.status_code == 200, revoked.text
+            rejected = await c.post(
+                "/mcp/",
+                headers=mcp_headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "api-key-client", "version": "1.0"},
+                    },
+                },
+            )
+            assert rejected.status_code == 401, rejected.text

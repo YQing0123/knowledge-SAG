@@ -5,9 +5,11 @@ import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { AccountSettings } from "@/components/features/account-settings";
+import { AnswerModelProfiles } from "@/components/features/answer-model-profiles";
 import { AgentSettingsCard } from "@/components/features/agent-settings-card";
 import { AppearanceSettings } from "@/components/features/appearance-settings";
 import { DiagnosticsSettings } from "@/components/features/diagnostics-settings";
+import { DshIntegrationSettings } from "@/components/features/dsh-integration-settings";
 import { KnowledgeConfigForm } from "@/components/features/knowledge-config-form";
 import { McpSettingsCard } from "@/components/features/mcp-settings-card";
 import { McpServiceSettings } from "@/components/features/mcp-service-settings";
@@ -109,7 +111,10 @@ function SettingsPageContent() {
         </TabsContent>
 
         <TabsContent value="model" className="m-0 animate-fade-in">
-          <ModelConfigForm />
+          <div className="flex flex-col gap-6">
+            <AnswerModelProfiles />
+            <ModelConfigForm />
+          </div>
         </TabsContent>
 
         <TabsContent value="knowledge" className="m-0 animate-fade-in">
@@ -124,6 +129,7 @@ function SettingsPageContent() {
 
         <TabsContent value="integrations" className="m-0 animate-fade-in">
           <div className="flex flex-col gap-6">
+            <DshIntegrationSettings />
             <McpSettingsCard />
             <McpServiceSettings />
           </div>

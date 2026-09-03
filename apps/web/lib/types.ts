@@ -69,6 +69,24 @@ export interface ProjectTask {
 }
 export interface ProjectSnapshot { projects: Project[]; tasks: ProjectTask[]; stages: ProjectStage[]; generated_at: string }
 
+export type RequirementStatus = "draft" | "analyzing" | "evaluating" | "ready" | "adopted" | "converted" | "in-progress" | "done" | "rejected" | "shelved" | "cancelled";
+export interface Requirement {
+  id: string; user_id: string; project_id: string | null; title: string; description: string; source: string;
+  status: RequirementStatus; priority: string; value: string; urgency: string; evaluation: string;
+  acceptance_criteria: string; decision_reason: string; converted_at: string | null; version: number;
+  created_at: string; updated_at: string; task_count: number; completed_task_count: number;
+}
+export interface WorkReport {
+  id: string; user_id: string; report_type: "daily" | "weekly"; report_date: string; status: "draft" | "generated" | "confirmed" | "archived";
+  summary: string; risks: string; next_plan: string; reflection: string; snapshot: { tasks?: Array<Record<string, string | null>>; requirements?: Array<Record<string, string>>; [key: string]: unknown };
+  confirmed_at: string | null; version: number; created_at: string; updated_at: string;
+}
+export interface Analytics {
+  start_date: string; end_date: string; total_tasks: number; completed_tasks: number; cancelled_tasks: number; overdue_tasks: number; completion_rate: number;
+  status_distribution: Record<string, number>; project_completion: Array<{ id: string; name: string; total: number; done: number; rate: number }>;
+  daily_trend: Array<{ date: string; created: number; completed: number }>; requirement_total: number; requirement_converted: number;
+}
+
 export interface TokenResponse {
   access_token: string;
   token_type: string;
@@ -356,6 +374,29 @@ export interface ModelConfig {
   locked_fields: string[];
 }
 
+export type AnswerModelProtocol = "openai-compatible" | "openai-responses";
+
+export interface AnswerModelItem {
+  id: string;
+  display_name: string;
+  context_window: number;
+  max_output_tokens: number;
+}
+
+export interface AnswerModelProfile {
+  id: string;
+  provider_id: string;
+  display_name: string;
+  base_url: string;
+  protocol: AnswerModelProtocol;
+  api_key_set: boolean;
+  models: AnswerModelItem[];
+  is_default: boolean;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export type ModelConfigPatch = Partial<{
   llm_provider: ModelConfig["llm_provider"];
   llm_base_url: string | null;
@@ -397,6 +438,13 @@ export interface SystemPreferences {
   conversation_ingest_dir: string;
 }
 
+export interface DshIntegrationConfig {
+  enabled: boolean;
+  gateway_base: string;
+  gateway_token_set: boolean;
+  gateway_timeout_seconds: number;
+}
+
 export interface McpToolDetail {
   name: string;
   label: string;
@@ -412,6 +460,7 @@ export interface SourceMcpDescriptor {
     transport: string;
     url: string;
     headers?: Record<string, string>;
+    auth?: { type: string; header: string; format: string; note: string };
     note: string;
   };
   stdio: { command: string; args: string[]; env: Record<string, string>; note: string };
@@ -427,9 +476,21 @@ export interface KnowledgeMcpDescriptor {
     transport: string;
     url: string;
     headers: Record<string, string>;
+    auth?: { type: string; header: string; format: string; note: string };
     note: string;
   };
   stdio: { command: string; args: string[]; env: Record<string, string>; note: string };
+}
+
+export interface McpApiKey {
+  id: string;
+  name: string;
+  key_prefix: string;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  active: boolean;
 }
 
 export interface Thread {
@@ -875,6 +936,7 @@ export interface Capabilities {
   max_upload_mb: number;
   allowed_upload_exts?: string[];
   timezone: string;
+  dsh_enabled: boolean;
 }
 
 export type OctxTransferDirection = "import" | "export";

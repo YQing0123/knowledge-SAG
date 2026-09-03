@@ -7,8 +7,8 @@
 
 from __future__ import annotations
 
-from urllib.parse import urlparse
 from pathlib import Path
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
@@ -25,6 +25,7 @@ from sag_api.enums import SEARCH_STRATEGIES, normalize_search_strategy
 _SCOPE = "global"
 _KEY = "model_config"
 _PREFERENCES_KEY = "system_preferences"
+_DSH_INTEGRATION_KEY = "dsh_integration"
 _DEFAULT_CONVERSATION_ARCHIVE_DIR = "知识层/会话归档"
 _DEFAULT_CONVERSATION_INGEST_DIR = "知识层/会话入库"
 log = get_logger("settings")
@@ -235,11 +236,18 @@ async def apply_startup_overrides(session_factory: async_sessionmaker) -> None:
                 log.warning("忽略非法的持久化时区：%s", timezone)
             else:
                 _settings.timezone = timezone
-        for field, default in (("conversation_archive_dir", _DEFAULT_CONVERSATION_ARCHIVE_DIR), ("conversation_ingest_dir", _DEFAULT_CONVERSATION_INGEST_DIR)):
+        for field, default in (
+            ("conversation_archive_dir", _DEFAULT_CONVERSATION_ARCHIVE_DIR),
+            ("conversation_ingest_dir", _DEFAULT_CONVERSATION_INGEST_DIR),
+        ):
             try:
                 setattr(_settings, field, _conversation_relative(preference_values.get(field), default))
             except ConfigurationError as error:
                 log.warning("忽略非法的持久化会话目录 %s: %s", field, error)
+        dsh = await _load_row(session, _DSH_INTEGRATION_KEY)
+        _apply_dsh_integration_overrides(
+            dict(dsh.value) if dsh and isinstance(dsh.value, dict) else {}
+        )
 
 
 def effective_model_config() -> dict:
@@ -280,15 +288,19 @@ def effective_model_config() -> dict:
 def _conversation_relative(value: object, default: str) -> str:
     raw = str(value or default).strip().replace("\\", "/")
     root = Path(_settings.conversation_export_root).resolve()
-    host_root = Path(_settings.conversation_host_root).expanduser().resolve() if _settings.conversation_host_root else None
+    host_root = (
+        Path(_settings.conversation_host_root).expanduser().resolve()
+        if _settings.conversation_host_root
+        else None
+    )
     candidate = Path(raw).expanduser()
     if candidate.is_absolute():
         resolved_candidate = candidate.resolve()
         try:
             candidate = resolved_candidate.relative_to(root)
-        except ValueError:
+        except ValueError as error:
             if host_root is None:
-                raise ConfigurationError("当前部署未配置会话归档宿主机根目录")
+                raise ConfigurationError("当前部署未配置会话归档宿主机根目录") from error
             try:
                 candidate = resolved_candidate.relative_to(host_root)
             except ValueError as error:
@@ -304,7 +316,11 @@ def _conversation_relative(value: object, default: str) -> str:
 
 
 def _conversation_display(relative: str) -> str:
-    root = Path(_settings.conversation_host_root).expanduser() if _settings.conversation_host_root else Path(_settings.conversation_export_root)
+    root = (
+        Path(_settings.conversation_host_root).expanduser()
+        if _settings.conversation_host_root
+        else Path(_settings.conversation_export_root)
+    )
     return str(root / relative)
 
 
@@ -316,6 +332,56 @@ def effective_system_preferences() -> dict[str, str]:
     }
 
 
+def _apply_dsh_integration_overrides(values: dict) -> None:
+    """Apply the public DSH integration settings without ever logging its token."""
+
+    if isinstance(values.get("enabled"), bool):
+        _settings.dsh_enabled = values["enabled"]
+    if isinstance(values.get("gateway_base"), str) and values["gateway_base"].strip():
+        _settings.dsh_gateway_base = values["gateway_base"].strip().rstrip("/")
+    if isinstance(values.get("gateway_token"), str) and values["gateway_token"].strip():
+        _settings.dsh_gateway_token = values["gateway_token"].strip()
+    if isinstance(values.get("gateway_timeout_seconds"), (int, float)):
+        _settings.dsh_gateway_timeout_seconds = float(values["gateway_timeout_seconds"])
+
+
+def effective_dsh_integration_config() -> dict[str, object]:
+    return {
+        "enabled": _settings.dsh_enabled,
+        "gateway_base": _settings.dsh_gateway_base or "",
+        "gateway_token_set": bool(_settings.dsh_gateway_token),
+        "gateway_timeout_seconds": _settings.dsh_gateway_timeout_seconds,
+    }
+
+
+async def save_dsh_integration_config(session: AsyncSession, patch: dict) -> dict[str, object]:
+    """Persist one local installation's DSH gateway connection configuration."""
+
+    row = await _load_row(session, _DSH_INTEGRATION_KEY)
+    stored = dict(row.value) if row and isinstance(row.value, dict) else {}
+    if "enabled" in patch:
+        stored["enabled"] = bool(patch["enabled"])
+    if isinstance(patch.get("gateway_base"), str) and patch["gateway_base"].strip():
+        stored["gateway_base"] = patch["gateway_base"].strip().rstrip("/")
+    if isinstance(patch.get("gateway_token"), str) and patch["gateway_token"].strip():
+        # Write-only secret: callers receive only gateway_token_set.
+        stored["gateway_token"] = patch["gateway_token"].strip()
+    if isinstance(patch.get("gateway_timeout_seconds"), (int, float)):
+        stored["gateway_timeout_seconds"] = float(patch["gateway_timeout_seconds"])
+    enabled = stored.get("enabled", _settings.dsh_enabled)
+    gateway_base = str(stored.get("gateway_base") or _settings.dsh_gateway_base or "").strip()
+    gateway_token = str(stored.get("gateway_token") or _settings.dsh_gateway_token or "").strip()
+    if enabled and (not gateway_base or not gateway_token):
+        raise ConfigurationError("启用 DSH 会话前，请先配置 DSH 网关地址和服务令牌")
+    if row is None:
+        session.add(Setting(scope=_SCOPE, key=_DSH_INTEGRATION_KEY, value=stored))
+    else:
+        row.value = stored
+    await session.commit()
+    _apply_dsh_integration_overrides(stored)
+    return effective_dsh_integration_config()
+
+
 async def save_system_preferences(session: AsyncSession, patch: dict) -> dict[str, str]:
     row = await _load_row(session, _PREFERENCES_KEY)
     stored = dict(row.value) if row and isinstance(row.value, dict) else {}
@@ -323,7 +389,10 @@ async def save_system_preferences(session: AsyncSession, patch: dict) -> dict[st
     if isinstance(timezone, str):
         stored["timezone"] = timezone
 
-    for field, default in (("conversation_archive_dir", _DEFAULT_CONVERSATION_ARCHIVE_DIR), ("conversation_ingest_dir", _DEFAULT_CONVERSATION_INGEST_DIR)):
+    for field, default in (
+        ("conversation_archive_dir", _DEFAULT_CONVERSATION_ARCHIVE_DIR),
+        ("conversation_ingest_dir", _DEFAULT_CONVERSATION_INGEST_DIR),
+    ):
         if field in patch and patch[field] is not None:
             stored[field] = _conversation_relative(patch[field], default)
 

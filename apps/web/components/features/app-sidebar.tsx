@@ -155,6 +155,7 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
     refreshThreads,
     loadMoreThreads,
     collapseThreads,
+    capabilities,
     timezone,
   } = useApp();
   const conversationIndex = useConversationIndex();
@@ -194,11 +195,19 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
   }, []);
 
   React.useEffect(() => {
+    if (!capabilities?.dsh_enabled) {
+      setDshSessions([]);
+      return;
+    }
     void loadDshSessions().catch(() => undefined);
     const refresh = () => void loadDshSessions().catch(() => undefined);
     window.addEventListener("sag:dsh-sessions-changed", refresh);
-    return () => window.removeEventListener("sag:dsh-sessions-changed", refresh);
-  }, [loadDshSessions]);
+    window.addEventListener("sag:dsh-integration-changed", refresh);
+    return () => {
+      window.removeEventListener("sag:dsh-sessions-changed", refresh);
+      window.removeEventListener("sag:dsh-integration-changed", refresh);
+    };
+  }, [capabilities?.dsh_enabled, loadDshSessions]);
 
   async function archiveThread(tid: string) {
     if (!agent) return;
@@ -267,7 +276,7 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
       <SidebarContent className="overflow-hidden">
         <SidebarGroup className="shrink-0">
           <SidebarMenu>
-            {WORKSPACE_SECTIONS.map((item) => {
+            {WORKSPACE_SECTIONS.filter((item) => item.id !== "dsh" || capabilities?.dsh_enabled).map((item) => {
               return (
                 <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton
@@ -429,7 +438,7 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
           </SidebarMenu> : null}
         </SidebarGroup>
 
-        <SidebarGroup className="min-h-0 flex-1 overflow-hidden group-data-[collapsible=icon]:hidden">
+        {capabilities?.dsh_enabled ? <SidebarGroup className="min-h-0 flex-1 overflow-hidden group-data-[collapsible=icon]:hidden">
           <SidebarGroupLabel className="flex items-center pr-1">
             <button type="button" onClick={() => setDshOpen((value) => !value)} className="flex min-w-0 flex-1 items-center gap-1 text-left" aria-expanded={dshOpen}>
               <span className="truncate">DSH会话</span>
@@ -480,7 +489,7 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
             {dshSessions.length > 5 && !dshExpanded ? <SidebarMenuItem className="pt-1"><SidebarMenuButton type="button" size="sm" onClick={() => setDshExpanded(true)} className="text-muted-foreground hover:text-foreground"><span className="min-w-0 flex-1 truncate">显示更多</span><ChevronDown /></SidebarMenuButton></SidebarMenuItem> : null}
             {dshExpanded && dshSessions.length > 5 ? <SidebarMenuItem><SidebarMenuButton type="button" size="sm" onClick={() => setDshExpanded(false)} className="text-muted-foreground hover:text-foreground"><span className="min-w-0 flex-1 truncate">收起</span><ChevronUp /></SidebarMenuButton></SidebarMenuItem> : null}
           </SidebarMenu> : null}
-        </SidebarGroup>
+        </SidebarGroup> : null}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
