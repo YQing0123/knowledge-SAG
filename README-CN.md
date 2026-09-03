@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2608.12129"><img alt="论文" src="https://img.shields.io/badge/paper-arXiv%3A2608.12129-18181b" /></a>
   <a href="https://pypi.org/project/zleap-sag/"><img alt="PyPI" src="https://img.shields.io/pypi/v/zleap-sag?label=zleap--sag&color=18181b" /></a>
-  <img alt="SAG 版本" src="https://img.shields.io/badge/SAG-v1.9.0-18181b" />
+  <img alt="SAG 版本" src="https://img.shields.io/badge/SAG-v1.9.6-18181b" />
   <a href="https://github.com/Zleap-AI/SAG/releases/latest"><img alt="桌面版发布" src="https://img.shields.io/github/v/release/Zleap-AI/SAG?label=desktop&color=18181b" /></a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776ab" />
   <img alt="Node" src="https://img.shields.io/badge/Node-20%2B-339933" />
@@ -43,6 +43,12 @@ https://github.com/user-attachments/assets/a080ad1a-5c08-4213-acfa-a226e3c0f68a
 ## 项目介绍
 
 ### 更新日志
+
+**2026 年 9 月 3 日 - v1.9.6**
+
+发布面向知识工作流的工作台与集成更新：原生问答现在可在普通模式、联网搜索和深度研究之间切换，并在流式回答中呈现研究、检索与引用过程；回答模型与文档抽取模型分离管理，可添加多个 OpenAI 兼容或 OpenAI Responses 提供方、发现模型目录，并在对话中选择模型。新增可选的 DSH 独立会话入口与服务端网关配置，Docker Desktop 默认通过稳定的主机路由连接网关，不受 Wi-Fi 地址变化影响。
+
+MCP 设置现支持为外部 Agent 创建、查看和立即撤销独立 API Key；密钥只在创建时显示一次，服务端只保存哈希，并可通过 Bearer 认证访问 Streamable HTTP MCP。同步加入个人项目管理工作台，覆盖项目阶段、任务、需求转任务、看板、甘特图、进度统计和日报/周报。
 
 **2026 年 8 月 13 日**
 
@@ -76,8 +82,10 @@ SAG 不是传统 RAG 与 GraphRAG 的融合，而是一套替代二者的原创�
 | 检索 | 全局或指定信源检索，支持快速（`vector`）与精确（`multi`）两种模式 |
 | 原文溯源 | 每条检索结果和引用都能打开对应的原文块 |
 | 知识图谱 | 查看事件、实体及其可查询的关联关系 |
-| Agent 对话 | 基于指定信源进行多轮问答，并提供可点击引用 |
-| 对外集成 | 自托管 REST/OpenAPI、OpenAI 兼容接口、MCP 与 `zleap-sag` Python 包 |
+| Agent 对话 | 基于指定信源进行多轮问答，支持联网、深度研究、流式过程与可点击引用 |
+| 模型选择 | 回答模型与文档抽取模型分离；支持多个 OpenAI 兼容 / Responses 提供方与模型发现 |
+| 对外集成 | 自托管 REST/OpenAPI、OpenAI 兼容接口、带可撤销 API Key 的 MCP、DSH 会话与 `zleap-sag` Python 包 |
+| 个人工作台 | 项目、阶段、任务、需求、看板、甘特图、统计与日报/周报 |
 
 产品默认面向本地单用户场景。它使用 SQLite 与 LanceDB 即可启动，不依赖外部数据库，同时保留迁移至 PostgreSQL/pgvector 等生产后端的路径。
 
@@ -243,6 +251,32 @@ docker compose up -d --build
   <img src="docs/assets/readme/product-chat.png" alt="带原文引用的 Agent 回答" width="940" />
 </p>
 
+#### 联网、深度研究与独立回答模型
+
+原生问答支持普通模式、联网搜索和深度研究模式。深度研究会在限定轮次内重写问题、检索知识库和可选的联网证据，并将过程、内外部引用随流式答案呈现。对话输入区可直接选择已配置的回答模型，模型配置不会改变文档解析与抽取所使用的模型。
+
+进入 **设置 → 模型** 可添加多个回答模型提供方，支持 OpenAI 兼容和 OpenAI Responses 协议；填写服务地址与密钥后可发现可用模型，并分别设置上下文窗口、最大输出 token 和默认回答模型。密钥不会在读取配置时返回给浏览器。
+
+<p align="center">
+  <img src="docs/assets/readme/product-native-chat-research.png" alt="原生问答中的联网、深度研究与回答模型选择" width="940" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme/product-answer-model-profiles.png" alt="回答模型提供方配置" width="940" />
+</p>
+
+#### DSH 独立会话
+
+可在 **设置 → 集成 → DSH 会话** 启用 DSH SAG 插件网关提供的独立会话与深度研究。网关令牌只保存在 SAG 服务端；Docker Desktop 默认使用 `host.docker.internal` 与主机代理通信，因此切换网络无需修改容器内地址。
+
+<p align="center">
+  <img src="docs/assets/readme/product-dsh-session-settings.png" alt="DSH 独立会话网关设置" width="940" />
+</p>
+
+### 个人工作台
+
+工作台将个人项目、阶段和任务集中管理，支持任务状态、优先级、日期、标签、每日节点和重复规则。可用看板和甘特图查看推进情况；需求可评估后拆分为任务，并可根据实际任务数据生成、编辑和确认日报或周报，同时提供周期统计。
+
 ### 探索模式
 
 探索模式会将整个知识库展开为可交互的知识宇宙。你可以在同一视图中搜索事件与实体、沿关联关系漫游，并随时打开事件详情与原文。
@@ -314,6 +348,8 @@ cp -r "$SKILL_SRC/skill" ~/.codex/skills/sag-knowledge
 #### 手动挂载（备选）
 
 不方便安装 CLI 时，可以在 SAG 中打开 **设置 → 集成 → 知识库 MCP**，选择 HTTP 或本地命令，把完整配置复制粘贴到 Agent 的 MCP 配置文件里。HTTP 配置已自动带入当前 JWT，默认开放全部信源，也可以通过 `source_id` 限定范围。
+
+对于长期或外部 Agent 接入，可在同一设置页创建命名 MCP API Key。密钥只在创建时显示一次，服务端仅保存 SHA-256 哈希；可查看最近使用时间，并随时撤销。HTTP MCP 同时兼容登录态 JWT 与 `Authorization: Bearer sag_mcp_<generated-key>`。
 
 <p align="center">
   <img src="docs/assets/readme/product-mcp.png" alt="SAG 知识库 MCP 集成设置" width="940" />
@@ -598,7 +634,7 @@ Authorization: Bearer <SAG_TOKEN>
 | 图谱 | `GET /sources/{id}/entities`、`/sources/{id}/graph` | 查看 event-entity 结构 |
 | Agent | `/agents`、`/threads`、`/ask` | Agent 配置、会话、SSE 运行与引用 |
 | OpenAI 兼容 | `POST /openai/{agent_id}/chat/completions` | 将任意 SAG Agent 作为带引用模型调用，支持流式 |
-| MCP | `/mcp/` 或 `/mcp/?source_id={id}` | 将整个知识库或单个信源开放给 MCP 宿主 |
+| MCP | `/mcp/` 或 `/mcp/?source_id={id}` | 将整个知识库或单个信源开放给 MCP 宿主；支持登录态 JWT 或可撤销 Bearer API Key |
 
 创建信源、持续写入文本并执行检索：
 

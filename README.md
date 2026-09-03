@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2608.12129"><img alt="Paper" src="https://img.shields.io/badge/paper-arXiv%3A2608.12129-18181b" /></a>
   <a href="https://pypi.org/project/zleap-sag/"><img alt="PyPI" src="https://img.shields.io/pypi/v/zleap-sag?label=zleap--sag&color=18181b" /></a>
-  <img alt="SAG version" src="https://img.shields.io/badge/SAG-v1.9.0-18181b" />
+  <img alt="SAG version" src="https://img.shields.io/badge/SAG-v1.9.6-18181b" />
   <a href="https://github.com/Zleap-AI/SAG/releases/latest"><img alt="Desktop release" src="https://img.shields.io/github/v/release/Zleap-AI/SAG?label=desktop&color=18181b" /></a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776ab" />
   <img alt="Node" src="https://img.shields.io/badge/Node-20%2B-339933" />
@@ -43,6 +43,12 @@ https://github.com/user-attachments/assets/ac805e3c-ab52-4857-bef6-2865f3831b2f
 ## Project
 
 ### Changelog
+
+**September 3, 2026 - v1.9.6**
+
+Released the knowledge-workflow workspace and integration update. Native chat now switches between normal, web-search, and deep-research modes, showing research, retrieval, and citations while streaming. Answer models are managed separately from document-extraction models: add multiple OpenAI-compatible or OpenAI Responses providers, discover their model catalogs, and select a model in chat. An optional DSH session entry and server-side gateway configuration add independent conversations; Docker Desktop uses a stable host route so the gateway is unaffected by Wi-Fi address changes.
+
+MCP settings now create, list, and immediately revoke dedicated API keys for external Agents. A raw key is shown only once, the server stores only its hash, and Streamable HTTP MCP accepts it through Bearer authentication. The new personal project workspace includes project stages, tasks, requirement-to-task conversion, Kanban, Gantt, progress analytics, and daily/weekly reports.
 
 **August 13, 2026**
 
@@ -76,8 +82,10 @@ Upload a document once. SAG parses it, splits it into chunks, embeds it, extract
 | Search | Global or source-scoped retrieval with Fast (`vector`) and Precise (`multi`) modes |
 | Source tracing | Open any result or citation back to the exact original chunk |
 | Knowledge graph | Inspect events, entities, and their queryable associations |
-| Agent chat | Multi-turn answers grounded in selected sources, with clickable citations |
-| Integration | Self-hosted REST/OpenAPI, OpenAI-compatible chat, MCP, and the `zleap-sag` Python package |
+| Agent chat | Multi-turn answers grounded in selected sources, with web search, deep research, streamed activity, and clickable citations |
+| Model choice | Answer and document-extraction models are separate; supports multiple OpenAI-compatible / Responses providers and model discovery |
+| Integration | Self-hosted REST/OpenAPI, OpenAI-compatible chat, MCP with revocable API keys, DSH sessions, and the `zleap-sag` Python package |
+| Personal workspace | Projects, stages, tasks, requirements, Kanban, Gantt, analytics, and daily/weekly reports |
 
 The product is deliberately local-first and single-user. It starts with SQLite and LanceDB, requires no external database, and keeps a clear path to PostgreSQL/pgvector and other production backends.
 
@@ -243,6 +251,32 @@ The default Agent searches the bound knowledge sources, streams the answer, and 
   <img src="docs/assets/readme/product-chat.png" alt="Agent answer with source citations" width="940" />
 </p>
 
+#### Web search, deep research, and dedicated answer models
+
+Native chat supports normal, web-search, and deep-research modes. Deep research rewrites the question, searches the knowledge base and optional web evidence for a bounded number of rounds, and streams its activity together with internal and external citations. The composer can select any configured answer model; this does not change the model used for document parsing and extraction.
+
+Open **Settings → Models** to add answer-model providers using the OpenAI-compatible or OpenAI Responses protocol. After entering a service address and key, discover available models and set their context window, maximum output tokens, and default answer model. Keys are never returned to the browser when configurations are read.
+
+<p align="center">
+  <img src="docs/assets/readme/product-native-chat-research.png" alt="Native chat with web search, deep research, and answer-model selection" width="940" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme/product-answer-model-profiles.png" alt="Answer-model provider configuration" width="940" />
+</p>
+
+#### Independent DSH sessions
+
+Enable an independent conversation and deep-research route from the DSH SAG plugin gateway in **Settings → Integrations → DSH Sessions**. Its gateway token stays server-side. On Docker Desktop, SAG communicates through `host.docker.internal` and the host proxy, so changing Wi-Fi networks does not require an in-container address update.
+
+<p align="center">
+  <img src="docs/assets/readme/product-dsh-session-settings.png" alt="DSH session gateway settings" width="940" />
+</p>
+
+### Personal workspace
+
+The workspace brings together personal projects, stages, and tasks, including task status, priority, dates, tags, daily nodes, and repeat rules. Use Kanban and Gantt views to follow delivery. Requirements can be evaluated and converted to tasks; daily and weekly reports are generated from actual task data, remain editable before confirmation, and are accompanied by period analytics.
+
 ### Explore mode
 
 Explore mode unfolds the entire knowledge base into an interactive knowledge universe. Search events and entities, travel through their relationships, and open event details or original sources without leaving the same view.
@@ -314,6 +348,8 @@ cp -r "$SKILL_SRC/skill" ~/.codex/skills/sag-knowledge
 #### Manual mounting (fallback)
 
 If you can't install the CLI, open **Settings → Integrations → Knowledge MCP** in SAG, pick HTTP or local command, and paste the copied block into your Agent's MCP config file yourself. The HTTP snippet already includes the current JWT and exposes all sources by default; scope it with `source_id` when needed.
+
+For long-lived or external-Agent access, create a named MCP API key on the same settings page. The raw key is shown only when created, while the server retains only a SHA-256 hash; you can inspect last use and revoke it at any time. HTTP MCP accepts both login JWTs and `Authorization: Bearer sag_mcp_<generated-key>`.
 
 <p align="center">
   <img src="docs/assets/readme/product-mcp.png" alt="SAG Knowledge MCP integration settings" width="940" />
@@ -596,7 +632,7 @@ Authorization: Bearer <SAG_TOKEN>
 | Graph | `GET /sources/{id}/entities`, `/sources/{id}/graph` | Event-entity inspection |
 | Agents | `/agents`, `/threads`, `/ask` | Agent configuration, conversations, SSE runs, citations |
 | OpenAI-compatible | `POST /openai/{agent_id}/chat/completions` | Use any SAG Agent as a cited model, streamed or non-streamed |
-| MCP | `/mcp/` or `/mcp/?source_id={id}` | Expose the whole knowledge base or one source to an MCP host |
+| MCP | `/mcp/` or `/mcp/?source_id={id}` | Expose the whole knowledge base or one source to an MCP host; accept a login JWT or a revocable Bearer API key |
 
 Create a source, ingest text, and search it:
 
