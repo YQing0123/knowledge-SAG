@@ -27,6 +27,7 @@ class SystemPreferencesUpdate(BaseModel):
     root_dir: str | None = Field(default=None, min_length=1, max_length=600)
     conversation_archive_dir: str | None = Field(default=None, min_length=1, max_length=600)
     conversation_ingest_dir: str | None = Field(default=None, min_length=1, max_length=600)
+    processing_log_retention_days: int | None = Field(default=None, ge=1, le=3650)
 
     @field_validator("timezone")
     @classmethod
@@ -143,6 +144,12 @@ class ModelConfigUpdate(BaseModel):
         if value is None:
             raise ValueError("模型接入方式不能为 null")
         return value
+
+
+class ModelConfigTestRequest(ModelConfigUpdate):
+    """连接测试请求；target 决定测试哪一类模型。"""
+
+    target: Literal["llm", "embedding", "mineru"] = "llm"
 
 
 class AnswerModelItem(BaseModel):

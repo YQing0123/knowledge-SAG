@@ -13,6 +13,7 @@ import { api } from "@/lib/api";
 export function StorageSettings() {
   const t = useTranslations("StorageSettings");
   const [rootDir, setRootDir] = React.useState("");
+  const [logRetentionDays, setLogRetentionDays] = React.useState("30");
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [selecting, setSelecting] = React.useState(false);
@@ -23,7 +24,10 @@ export function StorageSettings() {
     let active = true;
     void api.getSystemPreferences()
       .then((preferences) => {
-        if (active) setRootDir(preferences.root_dir ?? "");
+        if (active) {
+          setRootDir(preferences.root_dir ?? "");
+          setLogRetentionDays(String(preferences.processing_log_retention_days ?? 30));
+        }
       })
       .catch((error) => toast.error(error instanceof Error ? error.message : t("loadFailed")))
       .finally(() => {
@@ -51,8 +55,12 @@ export function StorageSettings() {
     if (!rootDir.trim() || saving) return;
     setSaving(true);
     try {
-      const saved = await api.saveSystemPreferences({ root_dir: rootDir.trim() });
+      const saved = await api.saveSystemPreferences({
+        root_dir: rootDir.trim(),
+        processing_log_retention_days: Math.min(3650, Math.max(1, Number(logRetentionDays) || 30)),
+      });
       setRootDir(saved.root_dir);
+      setLogRetentionDays(String(saved.processing_log_retention_days));
       toast.success(t("saved"));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("saveFailed"));
@@ -84,6 +92,19 @@ export function StorageSettings() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <ShieldCheck className="size-4 shrink-0" />
           <span>{canChoose ? t("permissionGranted") : t("permissionMount")}</span>
+        </div>
+      </SettingsRow>
+      <SettingsRow title={t("logRetentionTitle")} description={t("logRetentionDescription")}>
+        <div className="max-w-44">
+          <Input
+            type="number"
+            min={1}
+            max={3650}
+            value={logRetentionDays}
+            onChange={(event) => setLogRetentionDays(event.target.value)}
+            disabled={loading || saving}
+            aria-label={t("logRetentionTitle")}
+          />
         </div>
       </SettingsRow>
       <div className="border-t px-4 py-3 sm:px-5">

@@ -29,6 +29,8 @@ _PREFERENCES_KEY = "system_preferences"
 _DSH_INTEGRATION_KEY = "dsh_integration"
 _DEFAULT_CONVERSATION_ARCHIVE_DIR = "知识层/会话归档"
 _DEFAULT_CONVERSATION_INGEST_DIR = "知识层/会话入库"
+_DEFAULT_PROCESSING_LOG_RETENTION_DAYS = 30
+_processing_log_retention_days = _DEFAULT_PROCESSING_LOG_RETENTION_DAYS
 log = get_logger("settings")
 
 # 允许运行期覆盖的字段（值已由请求 schema 校验/转型）
@@ -225,8 +227,16 @@ async def apply_startup_overrides(session_factory: async_sessionmaker) -> None:
             row.value = overrides
             await session.commit()
         apply_overrides(_settings, overrides)
+        global _processing_log_retention_days
         preferences = await _load_row(session, _PREFERENCES_KEY)
         preference_values = dict(preferences.value) if preferences and isinstance(preferences.value, dict) else {}
+        try:
+            _processing_log_retention_days = max(
+                1,
+                min(3650, int(preference_values.get("processing_log_retention_days"))),
+            )
+        except (TypeError, ValueError):
+            _processing_log_retention_days = _DEFAULT_PROCESSING_LOG_RETENTION_DAYS
         timezone = preference_values.get("timezone")
         if isinstance(timezone, str):
             # Stored values were validated on write. Settings assignment is kept
@@ -334,7 +344,7 @@ def _conversation_display(relative: str) -> str:
     return str(root / relative)
 
 
-def effective_system_preferences() -> dict[str, str]:
+def effective_system_preferences() -> dict[str, object]:
     display_root = (
         str(Path(_settings.conversation_host_root).expanduser())
         if _settings.conversation_host_root
@@ -345,6 +355,7 @@ def effective_system_preferences() -> dict[str, str]:
         "root_dir": display_root,
         "conversation_archive_dir": _conversation_display(_settings.conversation_archive_dir),
         "conversation_ingest_dir": _conversation_display(_settings.conversation_ingest_dir),
+        "processing_log_retention_days": _processing_log_retention_days,
     }
 
 
@@ -398,12 +409,15 @@ async def save_dsh_integration_config(session: AsyncSession, patch: dict) -> dic
     return effective_dsh_integration_config()
 
 
-async def save_system_preferences(session: AsyncSession, patch: dict) -> dict[str, str]:
+async def save_system_preferences(session: AsyncSession, patch: dict) -> dict[str, object]:
+    global _processing_log_retention_days
     row = await _load_row(session, _PREFERENCES_KEY)
     stored = dict(row.value) if row and isinstance(row.value, dict) else {}
     timezone = patch.get("timezone")
     if isinstance(timezone, str):
         stored["timezone"] = timezone
+    if "processing_log_retention_days" in patch and patch["processing_log_retention_days"] is not None:
+        stored["processing_log_retention_days"] = int(patch["processing_log_retention_days"])
 
     root_dir = patch.get("root_dir")
     if isinstance(root_dir, str):
@@ -454,6 +468,10 @@ async def save_system_preferences(session: AsyncSession, patch: dict) -> dict[st
 
     if isinstance(stored.get("timezone"), str):
         _settings.timezone = stored["timezone"]
+    _processing_log_retention_days = int(
+        stored.get("processing_log_retention_days")
+        or _DEFAULT_PROCESSING_LOG_RETENTION_DAYS
+    )
     archive_relative = _conversation_relative(stored.get("conversation_archive_dir"), _DEFAULT_CONVERSATION_ARCHIVE_DIR)
     ingest_relative = _conversation_relative(stored.get("conversation_ingest_dir"), _DEFAULT_CONVERSATION_INGEST_DIR)
     _settings.conversation_archive_dir = archive_relative
@@ -467,7 +485,15 @@ async def save_system_preferences(session: AsyncSession, patch: dict) -> dict[st
         ),
         "conversation_archive_dir": _conversation_display(archive_relative),
         "conversation_ingest_dir": _conversation_display(ingest_relative),
+        "processing_log_retention_days": int(
+            stored.get("processing_log_retention_days")
+            or _DEFAULT_PROCESSING_LOG_RETENTION_DAYS
+        ),
     }
+
+
+async def processing_log_retention_days(session: AsyncSession) -> int:
+    return _processing_log_retention_days
 
 
 async def save_model_config(session: AsyncSession, patch: dict) -> dict:

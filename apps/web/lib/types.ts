@@ -426,6 +426,8 @@ export type ModelConfigPatch = Partial<{
   sag_language: "zh" | "en";
 }>;
 
+export type ModelConfigTestTarget = "llm" | "embedding" | "mineru";
+
 export interface ModelSetupStatus {
   required: boolean;
   environment_configured: boolean;
@@ -437,6 +439,19 @@ export interface SystemPreferences {
   root_dir: string;
   conversation_archive_dir: string;
   conversation_ingest_dir: string;
+  processing_log_retention_days: number;
+}
+
+export interface ProcessingLogEntry {
+  id: string;
+  source_id: string;
+  document_id: string | null;
+  job_id: string | null;
+  filename: string | null;
+  stage: string;
+  level: "info" | "warning" | "error";
+  message: string;
+  created_at: string;
 }
 
 export interface DshIntegrationConfig {

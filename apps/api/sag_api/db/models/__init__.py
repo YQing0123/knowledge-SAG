@@ -7,6 +7,7 @@ from sag_api.db.models.document import Document
 from sag_api.db.models.folder_sync import FolderSyncConfig, FolderSyncEntry
 from sag_api.db.models.job import Job
 from sag_api.db.models.mcp_api_key import McpApiKey
+from sag_api.db.models.processing_log import ProcessingLog
 from sag_api.db.models.octx import (
     OctxAsset,
     OctxDocumentBinding,
@@ -39,6 +40,7 @@ __all__ = [
     "FolderSyncEntry",
     "Job",
     "McpApiKey",
+    "ProcessingLog",
     "Message",
     "OctxAsset",
     "OctxDocumentBinding",

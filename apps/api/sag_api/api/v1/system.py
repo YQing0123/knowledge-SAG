@@ -23,6 +23,7 @@ from sag_api.schemas.system import (
     DshIntegrationUpdate,
     McpApiKeyCreate,
     ModelConfigUpdate,
+    ModelConfigTestRequest,
     QuickModelSetupRequest,
     SystemPreferencesUpdate,
 )
@@ -226,7 +227,7 @@ async def discover_answer_models(
 @router.get("/preferences")
 async def get_system_preferences(
     _user: User = Depends(get_current_user),
-) -> dict[str, str]:
+) -> dict[str, object]:
     """Presentation preferences shared by this local-first installation."""
     return settings_service.effective_system_preferences()
 
@@ -237,7 +238,7 @@ async def update_system_preferences(
     request: Request,
     _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> dict[str, str]:
+) -> dict[str, object]:
     preferences = await settings_service.save_system_preferences(
         session,
         body.model_dump(exclude_unset=True),
@@ -419,32 +420,92 @@ async def configure_302_mineru(
 @router.post("/model-config/test")
 async def test_model_config(
     request: Request,
-    body: ModelConfigUpdate | None = None,
+    body: ModelConfigTestRequest | None = None,
     _user: User = Depends(get_current_user),
 ) -> dict:
-    """连接测试：优先验证表单草稿，不持久化也不修改运行期单例。"""
-    llm: LLMClient
+    """连接测试：按类别验证表单草稿，不持久化也不修改运行期单例。"""
     active = settings
     if body is None:
-        llm = request.app.state.llm
+        target = "llm"
     else:
         patch = body.model_dump(exclude_unset=True)
-        updates = {
-            key: (None if key in {"llm_base_url"} and value == "" else value)
-            for key, value in patch.items()
-            if not (key == "llm_api_key" and not value)
-        }
+        target = str(patch.pop("target", "llm"))
+        updates = {}
+        for key, value in patch.items():
+            if key.endswith("_api_key") and not value:
+                continue
+            if key.endswith("_base_url") and value == "":
+                value = None
+            updates[key] = value
         active = settings.model_copy(update=updates)
-        llm = LLMClient(active)
-    if not llm.configured:
-        return {"ok": False, "message": "尚未配置 API Key"}
     try:
-        await llm.complete([{"role": "user", "content": "ping"}])
-        return {
-            "ok": True,
-            "message": f"连接成功 · {active.llm_provider} / {active.llm_model}",
-        }
+        if target == "llm":
+            llm = request.app.state.llm if body is None else LLMClient(active)
+            if not llm.configured:
+                return {"ok": False, "message": "生成模型尚未配置 API Key"}
+            await llm.complete([{"role": "user", "content": "ping"}])
+            return {"ok": True, "message": f"连接成功 · {active.llm_provider} / {active.llm_model}"}
+        if target == "embedding":
+            return await _test_embedding_connection(active)
+        if target == "mineru":
+            return await _test_mineru_connection(active)
+        return {"ok": False, "message": "不支持的模型测试类型"}
     except ApiError as e:
         return {"ok": False, "message": e.message}
     except Exception as e:  # noqa: BLE001
-        return {"ok": False, "message": str(e)}
+        return {"ok": False, "message": str(e)[:500]}
+
+
+async def _test_embedding_connection(active) -> dict[str, object]:
+    base_url = (active.effective_embedding_base_url or "").strip().rstrip("/")
+    api_key = active.effective_embedding_api_key
+    if not base_url or not api_key:
+        return {"ok": False, "message": "向量模型尚未配置 Base URL 或 API Key"}
+    endpoint = base_url if base_url.endswith("/embeddings") else f"{base_url}/embeddings"
+    async with httpx.AsyncClient(timeout=max(5.0, min(active.llm_timeout_ms / 1000, 60.0))) as client:
+        response = await client.post(
+            endpoint,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": active.embedding_model, "input": ["ping"]},
+        )
+    if response.status_code in {401, 403}:
+        return {"ok": False, "message": "向量模型鉴权失败，请检查 API Key"}
+    if not response.is_success:
+        return {"ok": False, "message": f"向量模型请求失败（HTTP {response.status_code}）"}
+    payload = response.json()
+    data = payload.get("data") if isinstance(payload, dict) else None
+    vector = data[0].get("embedding") if isinstance(data, list) and data and isinstance(data[0], dict) else None
+    if not isinstance(vector, list) or not vector:
+        return {"ok": False, "message": "向量模型响应中没有有效 embedding"}
+    return {"ok": True, "message": f"连接成功 · {active.embedding_model} / {len(vector)} 维"}
+
+
+async def _test_mineru_connection(active) -> dict[str, object]:
+    if not active.mineru_configured:
+        return {"ok": False, "message": "MinerU 尚未配置 Base URL 或 API Key"}
+    if active.mineru_provider == "official":
+        from sag_api.parsing.mineru_official import OfficialMinerUClient
+
+        client = OfficialMinerUClient(active)
+        # 空文件列表只做鉴权/服务可用性探测，不上传文件、不创建解析任务。
+        try:
+            await client._official_request(
+                "POST",
+                "file-urls/batch",
+                json={"files": [], "model_version": active.mineru_official_model},
+            )
+        except ApiError as exc:
+            if "鉴权失败" in exc.message:
+                return {"ok": False, "message": exc.message}
+            return {"ok": True, "message": f"服务可达 · MinerU 官方 / {active.mineru_official_model}"}
+        return {"ok": True, "message": f"连接成功 · MinerU 官方 / {active.mineru_official_model}"}
+    from sag_api.parsing.mineru import MinerU302Client
+
+    client = MinerU302Client(active)
+    try:
+        await client._api_request("POST", "/302/v2/mineru/task", json={})
+    except ApiError as exc:
+        if "鉴权失败" in exc.message:
+            return {"ok": False, "message": exc.message}
+        return {"ok": True, "message": f"服务可达 · 302 MinerU / {active.mineru_version}"}
+    return {"ok": True, "message": f"连接成功 · 302 MinerU / {active.mineru_version}"}

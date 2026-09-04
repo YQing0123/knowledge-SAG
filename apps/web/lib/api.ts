@@ -889,12 +889,12 @@ export const api = {
       "/api/v1/system/model-config/mineru/302",
       { method: "POST" },
     ),
-  testModelConfig: (b?: ModelConfigPatch) =>
+  testModelConfig: (target: "llm" | "embedding" | "mineru", b?: ModelConfigPatch) =>
     request<{ ok: boolean; message: string }>(
       "/api/v1/system/model-config/test",
       {
         method: "POST",
-        body: b ? JSON.stringify(b) : undefined,
+        body: JSON.stringify({ ...(b ?? {}), target }),
       },
     ),
 
@@ -932,6 +932,17 @@ export const api = {
     request<{ job_id: string; status: string }>(`/api/v1/sources/${id}/folder-sync/run`, {
       method: "POST",
     }),
+  listProcessingLogs: (
+    id: string,
+    options: { documentId?: string; level?: "info" | "warning" | "error" } = {},
+  ) => {
+    const params = new URLSearchParams({ limit: "200" });
+    if (options.documentId) params.set("document_id", options.documentId);
+    if (options.level) params.set("level", options.level);
+    return request<import("./types").ProcessingLogEntry[]>(
+      `/api/v1/sources/${id}/processing-logs?${params.toString()}`,
+    );
+  },
 
   // 文档
   listDocuments: (sid: string) =>

@@ -33,6 +33,7 @@ import { getDiagnosticsStore } from "@/lib/diagnostics";
 import type {
   ModelConfig,
   ModelConfigPatch,
+  ModelConfigTestTarget,
   ModelProviderId,
   ModelProviderSpec,
 } from "@/lib/types";
@@ -54,8 +55,10 @@ export function ModelConfigForm() {
   const [providers, setProviders] = React.useState<ModelProviderSpec[]>([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
-  const [testing, setTesting] = React.useState(false);
-  const [testResult, setTestResult] = React.useState<{ ok: boolean; message: string } | null>(null);
+  const [testingTarget, setTestingTarget] = React.useState<ModelConfigTestTarget | null>(null);
+  const [testResults, setTestResults] = React.useState<
+    Partial<Record<ModelConfigTestTarget, { ok: boolean; message: string }>>
+  >({});
 
   const [llmProvider, setLlmProvider] = React.useState<ModelProviderId>("openai");
   const [llmBaseUrl, setLlmBaseUrl] = React.useState("");
@@ -174,7 +177,7 @@ export function ModelConfigForm() {
 
   async function save() {
     setSaving(true);
-    setTestResult(null);
+    setTestResults({});
     const patch = currentPatch();
     try {
       const { config } = await api.saveModelConfig(patch);
@@ -222,25 +225,27 @@ export function ModelConfigForm() {
     }
   }
 
-  async function test() {
-    setTesting(true);
-    setTestResult(null);
+  async function test(target: ModelConfigTestTarget) {
+    setTestingTarget(target);
+    setTestResults((current) => ({ ...current, [target]: undefined }));
     try {
-      const result = await api.testModelConfig(currentPatch());
-      setTestResult(result);
+      const result = await api.testModelConfig(target, currentPatch());
+      setTestResults((current) => ({ ...current, [target]: result }));
       getDiagnosticsStore().record("model.test", {
+        target,
         ok: result.ok,
         message: result.message,
       });
     } catch (error) {
       const message = error instanceof ApiError ? error.message : t("testFailed");
-      setTestResult({ ok: false, message });
+      setTestResults((current) => ({ ...current, [target]: { ok: false, message } }));
       getDiagnosticsStore().record("model.test", {
+        target,
         ok: false,
         message,
       });
     } finally {
-      setTesting(false);
+      setTestingTarget(null);
     }
   }
 
@@ -273,7 +278,7 @@ export function ModelConfigForm() {
       setTemperature(next.default_temperature);
     }
     setLlmProvider(next.id);
-    setTestResult(null);
+    setTestResults({});
   }
 
   function changeMineruProvider(value: ModelConfig["mineru_provider"]) {
@@ -281,7 +286,7 @@ export function ModelConfigForm() {
       mineruProviderBaseUrl(mineruBaseUrl, mineruProvider, value),
     );
     setMineruProvider(value);
-    setTestResult(null);
+    setTestResults({});
   }
 
   async function setup302MinerU() {
@@ -705,7 +710,7 @@ export function ModelConfigForm() {
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={saving || testing}
+                  disabled={saving || testingTarget !== null}
                   onClick={() => void setup302MinerU()}
                   className="w-fit"
                 >
@@ -731,25 +736,38 @@ export function ModelConfigForm() {
       </SettingsSection>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-        <div className="min-h-5 min-w-0">
-          {testResult && (
-            <span
-              className={cn(
-                "inline-flex items-center gap-1.5 text-sm",
-                testResult.ok ? "text-success" : "text-destructive",
-              )}
-            >
-              {testResult.ok ? <Check className="size-4" /> : <X className="size-4" />}
-              {testResult.message}
-            </span>
-          )}
+        <div className="flex min-h-5 min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
+          {(["llm", "embedding", "mineru"] as const).map((target) => {
+            const result = testResults[target];
+            if (!result) return null;
+            return (
+              <span
+                key={target}
+                className={cn(
+                  "inline-flex items-center gap-1.5 text-sm",
+                  result.ok ? "text-success" : "text-destructive",
+                )}
+              >
+                {result.ok ? <Check className="size-4" /> : <X className="size-4" />}
+                {result.message}
+              </span>
+            );
+          })}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" onClick={test} variant="outline" disabled={llmLocked || testing || saving}>
-            {testing ? <Spinner /> : <Plug />}
-            {testing ? t("testing") : t("testGeneration")}
+          <Button type="button" onClick={() => void test("llm")} variant="outline" disabled={llmLocked || testingTarget !== null || saving}>
+            {testingTarget === "llm" ? <Spinner /> : <Plug />}
+            {testingTarget === "llm" ? t("testing") : t("testGeneration")}
           </Button>
-          <Button type="button" onClick={save} disabled={saving || testing}>
+          <Button type="button" onClick={() => void test("embedding")} variant="outline" disabled={testingTarget !== null || saving}>
+            {testingTarget === "embedding" ? <Spinner /> : <Plug />}
+            {testingTarget === "embedding" ? t("testing") : t("testEmbedding")}
+          </Button>
+          <Button type="button" onClick={() => void test("mineru")} variant="outline" disabled={testingTarget !== null || saving}>
+            {testingTarget === "mineru" ? <Spinner /> : <Plug />}
+            {testingTarget === "mineru" ? t("testing") : t("testMineru")}
+          </Button>
+          <Button type="button" onClick={save} disabled={saving || testingTarget !== null}>
             {saving ? <Spinner /> : <Save />}
             {saving ? t("saving") : t("save")}
           </Button>

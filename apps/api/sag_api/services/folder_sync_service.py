@@ -28,6 +28,7 @@ from sag_api.schemas.folder_sync import (
 )
 from sag_api.services.document_service import create_document_from_upload, delete_document
 from sag_api.services.markdown_image_service import enrich_markdown, fingerprint_for
+from sag_api.services.processing_log_service import record_processing_log
 
 log = get_logger("folder-sync")
 
@@ -339,6 +340,7 @@ async def run_folder_sync(
     job_queue: JobQueue,
     *,
     app_settings: Settings = settings,
+    target_relative_path: str | None = None,
 ) -> dict[str, int]:
     """Apply one manifest diff. Updated files get a fresh document then retire the old one."""
     config = await session.get(FolderSyncConfig, source.id)
@@ -349,6 +351,14 @@ async def run_folder_sync(
     config.current_stage = "scanning"
     config.current_file = None
     await session.commit()
+    if target_relative_path:
+        await record_processing_log(
+            session,
+            source_id=source.id,
+            stage="syncing",
+            message="按当前同步与图片采集配置重新处理文件",
+            filename=target_relative_path,
+        )
     summary = {"discovered": 0, "created": 0, "updated": 0, "deleted": 0, "unchanged": 0, "skipped": 0}
     try:
         scanned = await asyncio.to_thread(_scan_files, config, app_settings)
@@ -364,6 +374,8 @@ async def run_folder_sync(
         seen: set[str] = set()
         for relative, path, stat, content_hash in scanned:
             seen.add(relative)
+            if target_relative_path and relative != target_relative_path:
+                continue
             entry = by_path.get(relative)
             raw_data = await asyncio.to_thread(path.read_bytes)
             try:
@@ -386,7 +398,23 @@ async def run_folder_sync(
                 and entry.mtime_ns == stat.st_mtime_ns
             )
             raw_file_is_current = entry is not None and entry.raw_content_hash == content_hash
-            if raw_file_is_current or legacy_raw_match:
+            # A raw file can remain unchanged while image-enrichment settings,
+            # referenced images, or the MinerU model changes. Only skip when
+            # both the source bytes and the current processing fingerprint match.
+            image_retry_ready = (
+                entry is not None
+                and entry.image_enrichment_status == "not_requested"
+                and config.image_enrichment_enabled
+                and bool(refs)
+                and app_settings.mineru_provider == "official"
+                and app_settings.mineru_configured
+            )
+            processing_is_current = (
+                entry is not None
+                and entry.content_hash == fingerprint
+                and not image_retry_ready
+            )
+            if (raw_file_is_current and processing_is_current) or (legacy_raw_match and processing_is_current):
                 existing_document = await session.get(Document, entry.document_id) if entry.document_id else None
                 if existing_document is not None:
                     if not entry.raw_content_hash:
@@ -432,6 +460,14 @@ async def run_folder_sync(
                 config.current_stage = "image_parsing"
                 config.current_file = relative
                 await session.commit()
+                await record_processing_log(
+                    session,
+                    source_id=source.id,
+                    document_id=entry.document_id if entry else None,
+                    stage="image_parsing",
+                    message=f"正在采集 {len(refs)} 张 Markdown 图片的文字",
+                    filename=relative,
+                )
             enrichment = await enrich_markdown(raw_data, path, image_root, relative, source.id, config, app_settings)
             if config.image_enrichment_enabled and refs:
                 config.current_stage = "image_merging"
@@ -500,6 +536,14 @@ async def run_folder_sync(
         config.current_stage = None
         config.current_file = None
         await session.commit()
+        if target_relative_path:
+            await record_processing_log(
+                session,
+                source_id=source.id,
+                stage="sync_completed",
+                message="已按当前配置提交处理任务",
+                filename=target_relative_path,
+            )
         return summary
     except Exception as error:
         config.last_summary = summary
@@ -507,6 +551,15 @@ async def run_folder_sync(
         config.last_error = str(error)[:1000]
         config.current_stage = "failed"
         await session.commit()
+        if target_relative_path:
+            await record_processing_log(
+                session,
+                source_id=source.id,
+                stage="sync_failed",
+                level="error",
+                message=str(error),
+                filename=target_relative_path,
+            )
         raise
 
 

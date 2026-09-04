@@ -223,6 +223,17 @@ async def _process_document_unlocked(
     source = await session.get(Source, document.source_id)
     if source is None:
         raise NotFoundError("信源不存在")
+    from sag_api.services.processing_log_service import record_processing_log
+
+    await record_processing_log(
+        session,
+        source_id=source.id,
+        document_id=document.id,
+        job_id=job.id,
+        filename=document.filename,
+        stage="queued",
+        message="开始按当前配置处理文档",
+    )
     checkpoint = ProcessCheckpoint.from_payload(job.payload)
     scheduler_yield_reason: str | None = None
 
@@ -252,6 +263,15 @@ async def _process_document_unlocked(
             document.progress = 20 + round(80 * completed / total) if total else 20
             job.progress = document.progress / 100
         await session.commit()
+        await record_processing_log(
+            session,
+            source_id=source.id,
+            document_id=document.id,
+            job_id=job.id,
+            filename=document.filename,
+            stage=stage,
+            message="正在解析文档" if stage == "loading" else "正在切片、向量化和抽取知识",
+        )
 
     async def on_parser_state(state: dict) -> None:
         await session.refresh(document)
@@ -342,6 +362,15 @@ async def _process_document_unlocked(
             for field, value in _prepared_parser_values(prepared, parser_state).items():
                 setattr(document, field, value)
             await session.commit()
+            await record_processing_log(
+                session,
+                source_id=source.id,
+                document_id=document.id,
+                job_id=job.id,
+                filename=document.filename,
+                stage="parsed",
+                message=f"解析完成：{document.parser_provider or 'unknown'}",
+            )
             if prepared.fallback_from:
                 log.warning(
                     "文档解析已降级 doc=%s job=%s from=%s to=%s cached=%s error=%s",
@@ -374,6 +403,16 @@ async def _process_document_unlocked(
         layer, stage = _classify_document_failure(e, document.status)
         expected_status = document.status
         message = getattr(e, "message", None) or str(e)
+        await record_processing_log(
+            session,
+            source_id=source.id,
+            document_id=document.id,
+            job_id=job.id,
+            filename=document.filename,
+            stage="failed",
+            level="error",
+            message=message,
+        )
         public_message = message
         parser_failure_values: dict[str, str | None] = {}
         parser_state = (job.payload or {}).get("document_parser")
@@ -458,6 +497,15 @@ async def _process_document_unlocked(
     )
     await touch_source_revision(session, source.id)
     await session.commit()
+    await record_processing_log(
+        session,
+        source_id=source.id,
+        document_id=document.id,
+        job_id=job.id,
+        filename=document.filename,
+        stage="completed",
+        message=f"处理完成：{outcome.chunk_count} 个切片，{outcome.event_count} 个知识事件",
+    )
     log.info(
         "文档处理完成 doc=%s parser=%s cached=%s chunks=%d events=%d tokens=%d",
         document.id,
@@ -647,7 +695,12 @@ async def _sync_source_unlocked(session: AsyncSession, job: Job, *, job_queue=No
 
     folder_config = await session.get(FolderSyncConfig, source.id)
     if folder_config is not None and folder_config.enabled:
-        summary = await run_folder_sync(session, source, job_queue)
+        summary = await run_folder_sync(
+            session,
+            source,
+            job_queue,
+            target_relative_path=(job.payload or {}).get("target_relative_path"),
+        )
         job.progress = 1.0
         job.payload = {**(job.payload or {}), "folder_sync": summary}
         await session.commit()

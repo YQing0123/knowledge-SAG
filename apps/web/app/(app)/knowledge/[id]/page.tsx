@@ -22,6 +22,7 @@ import { useApp } from "@/components/features/app-shell";
 import { DocumentList } from "@/components/features/document-list";
 import { EmptyState } from "@/components/features/empty-state";
 import { FolderSyncDialog, FolderSyncEnabledSwitch } from "@/components/features/folder-sync-dialog";
+import { ProcessingLogDialog } from "@/components/features/processing-log-dialog";
 import {
   dismissFolderImportDialog,
   FolderImportDialog,
@@ -212,6 +213,7 @@ export default function SourceDetailPage() {
         <div className="flex shrink-0 items-center gap-2">
           {source && (
             <div className="flex items-center gap-2">
+              <ProcessingLogDialog sourceId={source.id} />
               <FolderSyncDialog
                 sourceId={source.id}
                 onSynced={() => void refresh({ background: true })}

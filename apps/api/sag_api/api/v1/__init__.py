@@ -14,6 +14,7 @@ from sag_api.api.v1 import (
     knowledge,
     octx,
     openai,
+    processing_logs,
     search,
     sources,
     storage_bootstrap,  # [storage-bootstrap]
@@ -36,6 +37,7 @@ for _module in (
     search,
     agents,
     openai,
+    processing_logs,
     activity,
     attachments,
     storage_bootstrap,  # [storage-bootstrap]

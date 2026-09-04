@@ -268,7 +268,20 @@
     "saved": "根目录已更新",
     "loadFailed": "无法加载根目录设置",
     "chooseFailed": "无法打开系统文件夹选择器",
-    "saveFailed": "根目录保存失败"
+    "saveFailed": "根目录保存失败",
+    "logRetentionTitle": "处理日志保留天数",
+    "logRetentionDescription": "系统每天自动清理超过保留天数的知识库处理日志。"
+  },
+  "ProcessingLogs": {
+    "title": "处理日志",
+    "description": "查看该知识库内每个文件的同步、解析、向量化和错误过程。日志按存储设置中的保留天数自动清理。",
+    "all": "全部日志",
+    "errors": "仅错误",
+    "refresh": "刷新",
+    "loading": "正在读取日志…",
+    "loadFailed": "无法读取处理日志",
+    "empty": "暂无处理日志。新的文件处理会在这里显示过程。",
+    "sourceLevel": "知识库任务"
   },
   "DocumentStatus": {
     "pending": "待处理",
@@ -828,6 +841,8 @@
     "secretDescription": "密钥不会回显，留空保持当前配置不变。",
     "testing": "测试中…",
     "testGeneration": "测试生成模型",
+    "testEmbedding": "测试向量模型",
+    "testMineru": "测试 MinerU",
     "saving": "保存中…",
     "save": "保存并生效"
   },

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sag_api.core.errors import ConflictError, NotFoundError
 from sag_api.db.base import new_id
-from sag_api.db.models import Document, Job, Source
+from sag_api.db.models import Document, FolderSyncConfig, FolderSyncEntry, Job, Source
 from sag_api.enums import DocumentStatus, JobStatus, JobType
 from sag_api.jobs import JobQueue
 from sag_api.jobs.scheduling import DELETE_PRIORITY, RESUME_PRIORITY, set_scheduler
@@ -169,6 +169,27 @@ async def reprocess_document(
         JobStatus.PAUSED,
     }:
         return latest
+    # Folder-managed documents must be rebuilt from the source file so the
+    # latest parser and Markdown-image enrichment settings are applied. Queue
+    # a targeted sync instead of processing the already-enriched upload copy.
+    folder_entry = await session.scalar(
+        select(FolderSyncEntry).where(FolderSyncEntry.document_id == document.id)
+    )
+    folder_config = await session.get(FolderSyncConfig, source.id) if folder_entry else None
+    if folder_entry is not None and folder_config is not None and folder_config.enabled:
+        folder_entry.content_hash = ""
+        folder_job = Job(
+            type=JobType.SYNC_SOURCE,
+            source_id=source.id,
+            status=JobStatus.QUEUED,
+            payload={"target_relative_path": folder_entry.relative_path},
+        )
+        session.add(folder_job)
+        await touch_source_revision(session, source.id)
+        await session.commit()
+        await session.refresh(folder_job)
+        await _enqueue_persisted_job(job_queue, folder_job.id)
+        return folder_job
     restart_from_scratch = document.status == DocumentStatus.READY
     retrying_cleanup = bool(
         latest is not None and latest.type == JobType.REPROCESS_DOCUMENT and latest.status == JobStatus.FAILED

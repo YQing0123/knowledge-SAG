@@ -268,7 +268,20 @@
     "saved": "Root directory updated",
     "loadFailed": "Unable to load root directory settings",
     "chooseFailed": "Unable to open the system folder picker",
-    "saveFailed": "Failed to save root directory"
+    "saveFailed": "Failed to save root directory",
+    "logRetentionTitle": "Processing log retention (days)",
+    "logRetentionDescription": "Logs older than this period are removed automatically each day."
+  },
+  "ProcessingLogs": {
+    "title": "Processing logs",
+    "description": "Review sync, parsing, embedding, and error events for every file in this knowledge source. Logs follow the retention period in Storage settings.",
+    "all": "All logs",
+    "errors": "Errors only",
+    "refresh": "Refresh",
+    "loading": "Loading logs…",
+    "loadFailed": "Unable to load processing logs",
+    "empty": "No processing logs yet. New processing events will appear here.",
+    "sourceLevel": "Knowledge source task"
   },
   "DocumentStatus": {
     "pending": "Pending",
@@ -828,6 +841,8 @@
     "secretDescription": "The key is never displayed. Leave blank to keep the current value.",
     "testing": "Testing…",
     "testGeneration": "Test generation model",
+    "testEmbedding": "Test embedding model",
+    "testMineru": "Test MinerU",
     "saving": "Saving…",
     "save": "Save and apply"
   },

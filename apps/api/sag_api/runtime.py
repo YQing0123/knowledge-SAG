@@ -116,6 +116,7 @@ class KnowledgeRuntime:
         self._mcp_handle: Any | None = None
         self._mcp_started = False
         self._folder_sync_scheduler: Any | None = None
+        self._processing_log_retention_scheduler: Any | None = None
         # Engine resets can drain long-running document work.  Keep the task
         # separately so configuration writes can acknowledge persistence
         # without holding the HTTP request open until the drain finishes.
@@ -157,6 +158,12 @@ class KnowledgeRuntime:
                     self._session_factory, self._job_queue, self._settings
                 )
                 await self._folder_sync_scheduler.start()
+                from sag_api.services.processing_log_service import ProcessingLogRetentionScheduler
+
+                self._processing_log_retention_scheduler = ProcessingLogRetentionScheduler(
+                    self._session_factory
+                )
+                await self._processing_log_retention_scheduler.start()
                 self._warmup_task = self._factory.start_warmup(self._engine_manager)
                 self._warmup_started = True
                 self._mcp_handle = await self._factory.start_mcp(app)
@@ -262,6 +269,7 @@ class KnowledgeRuntime:
                 self._warmup_started,
                 self._mcp_started,
                 self._folder_sync_scheduler is not None,
+                self._processing_log_retention_scheduler is not None,
             )
         )
 
@@ -290,6 +298,11 @@ class KnowledgeRuntime:
             )
         if self._folder_sync_scheduler is not None:
             await teardown(self._folder_sync_scheduler.stop, lambda: setattr(self, "_folder_sync_scheduler", None))
+        if self._processing_log_retention_scheduler is not None:
+            await teardown(
+                self._processing_log_retention_scheduler.stop,
+                lambda: setattr(self, "_processing_log_retention_scheduler", None),
+            )
         if self._job_queue is not None:
             await teardown(self._job_queue.stop, lambda: setattr(self, "_job_queue", None))
         if self._agent_runtime is not None:

@@ -242,7 +242,9 @@ async def _active_lease_owner(
 
 
 def _processing_resource(source_id: str, job_id: str) -> str:
-    return f"source:{source_id}:processor:{job_id}"
+    # Engine/OCTX mutates one source at a time. Keep the resource source-scoped
+    # so concurrent document jobs wait instead of racing into "resource busy".
+    return f"source:{source_id}:processor"
 
 
 async def _wait_for_source_processors(
@@ -261,7 +263,7 @@ async def _wait_for_source_processors(
                     OctxOperationLease.expires_at > now,
                     or_(
                         *[
-                            OctxOperationLease.resource_key.like(f"source:{source_id}:processor:%")
+                            OctxOperationLease.resource_key == f"source:{source_id}:processor"
                             for source_id in source_ids
                         ]
                     ),
@@ -286,7 +288,7 @@ async def acquire_source_processing_lease(
     source_id: str,
     job_id: str,
     *,
-    admission_timeout_seconds: float = 1,
+    admission_timeout_seconds: float = 120,
     delete_wait_timeout_seconds: float = 120,
 ) -> AsyncIterator[None]:
     """Register one shared processor while briefly crossing the source gate.
